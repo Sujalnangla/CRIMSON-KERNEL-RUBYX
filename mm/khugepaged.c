@@ -22,20 +22,18 @@
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
 #include "internal.h"
-
 /* gross hack for <=4.19 stable */
-#if defined(CONFIG_S390) || defined(CONFIG_ARM)
-static void tlb_remove_table_smp_sync(void *arg)
+#if defined(CONFIG_S390) || defined(CONFIG_ARM) || defined(CONFIG_ARM64)
+void tlb_remove_table_smp_sync(void *arg)
 {
         /* Simply deliver the interrupt */
 }
 
-static void tlb_remove_table_sync_one(void)
+void tlb_remove_table_sync_one(void)
 {
         smp_call_function(tlb_remove_table_smp_sync, NULL, 1);
 }
 #endif
-
 enum scan_result {
 	SCAN_FAIL,
 	SCAN_SUCCEED,
