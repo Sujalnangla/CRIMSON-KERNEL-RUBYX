@@ -9,127 +9,76 @@
 #
 # Normal rules (sorted alphabetically)
 #
-.*
-*.a
-*.asn1.[ch]
-*.bin
-*.bz2
-*.c.[012]*.*
-*.dtb
-*.dtb.S
-*.dwo
-*.elf
-*.gcno
-*.gz
-*.i
-*.ko
-*.lex.c
-*.ll
-*.lst
-*.lz4
-*.lzma
-*.lzo
-*.mod.c
+# SPDX-License-Identifier: GPL-2.0-only
+# Android Kernel Custom .gitignore
+
+# ------------------------------------
+# 1. Compiled Objects & Archives
+# ------------------------------------
 *.o
-*.o.*
-*.order
-*.patch
+*.a
 *.s
+*.ko
 *.so
 *.so.dbg
-*.su
+*.mod
+*.mod.c
+*.i
+*.lst
 *.symtypes
-*.tab.[ch]
-*.tar
+*.order
+*.elf
+*.bin
+*.gz
+*.bz2
+*.lzma
 *.xz
-Module.symvers
-modules.builtin
+*.lzo
+*.lz4
+*.zst
+*.patch
+*.gcno
+*.gcda
 
-#
-# Top-level generic files
-#
-/tags
-/TAGS
-/linux
+# ------------------------------------
+# 2. Kernel Images & Map Files
+# ------------------------------------
 /vmlinux
 /vmlinux.32
-/vmlinux-gdb.py
+/vmlinux.map
+/vmlinux.symvers
 /vmlinuz
 /System.map
 /Module.markers
+/Module.symvers
+/modules.builtin
+/modules.builtin.modinfo
+/modules.order
+dtbs-list
 
-#
-# RPM spec file (make rpm-pkg)
-#
-/*.spec
+# ------------------------------------
+# 3. Custom Output & Zips (Crucial)
+# ------------------------------------
+# Ignores your build output folder and AnyKernel3 packaging directory
+/out/
+/AnyKernel3/
+*.zip
 
-#
-# Debian directory (make deb-pkg)
-#
-/debian/
+# ------------------------------------
+# 4. Logs & Text Outputs
+# ------------------------------------
+*.log
+build_log.txt
+last_kmsg.txt
+dmesg.txt
 
-#
-# Snap directory (make snap-pkg)
-#
-/snap/
-
-#
-# tar directory (make tar*-pkg)
-#
-/tar-install/
-
-#
-# git files that we don't want to ignore even if they are dot-files
-#
-!.gitignore
-!.mailmap
-!.cocciconfig
-!.clang-format
-
-#
-# Generated include files
-#
-include/config
-include/generated
-include/ksym
-arch/*/include/generated
-
-# stgit generated dirs
-patches-*
-
-# quilt's files
-patches
-series
-
-# cscope files
-cscope.*
-ncscope.*
-
-# gnu global files
-GPATH
-GRTAGS
-GSYMS
-GTAGS
-
-# id-utils files
-ID
-
+# ------------------------------------
+# 5. IDEs, Editors & Temp Files
+# ------------------------------------
+.vscode/
+.idea/
+*.swp
 *~
-\#*#
-
-#
-# Leavings from module signing
-#
-extra_certificates
-signing_key.pem
-signing_key.priv
-signing_key.x509
-x509.genkey
-
-# Kconfig presets
-all.config
-
-# Kdevelop4
-*.kdev4
-
-!drivers/misc/mediatek/fpsgo_cus/src/*.o
+*.orig
+*.rej
+\#*\#
