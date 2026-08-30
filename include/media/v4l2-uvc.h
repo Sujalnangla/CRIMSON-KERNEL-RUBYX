@@ -138,9 +138,13 @@
 
 struct uvc_format_desc {
 	char *name;
-	u8 guid[16];
+ 	u8 guid[16];
 	u32 fcc;
 };
+
+/* ------------------------------------------------------------------------
+ * Video formats
+ */
 
 static struct uvc_format_desc uvc_fmts[] = {
 	{
@@ -315,7 +319,7 @@ static struct uvc_format_desc uvc_fmts[] = {
 	},
 };
 
-static inline struct uvc_format_desc *uvc_format_by_guid(const u8 guid[16])
+static inline struct uvc_format_desc *uvc_format_by_guid(const __u8 guid[16])
 {
 	unsigned int len = ARRAY_SIZE(uvc_fmts);
 	unsigned int i;

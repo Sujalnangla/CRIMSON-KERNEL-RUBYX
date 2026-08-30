@@ -139,8 +139,7 @@ struct uvc_control {
 	struct uvc_fh *handle;	/* File handle that last changed the control. */
 };
 
-/*
- * The term 'entity' refers to both UVC units and UVC terminals.
+/* The term 'entity' refers to both UVC units and UVC terminals.
  *
  * The type field is either the terminal type (wTerminalType in the terminal
  * descriptor), or the unit type (bDescriptorSubtype in the unit descriptor).
@@ -419,9 +418,9 @@ struct uvc_streaming {
 		u32 max_payload_size;
 	} bulk;
 
-	struct urb *urb[UVC_URBS];
-	char *urb_buffer[UVC_URBS];
-	dma_addr_t urb_dma[UVC_URBS];
+	struct urb **urb;
+	char **urb_buffer;
+	dma_addr_t *urb_dma;
 	unsigned int urb_size;
 
 	u32 sequence;
@@ -454,6 +453,15 @@ struct uvc_streaming {
 
 		spinlock_t lock;
 	} clock;
+
+	/* Maximum number of URBs that can be submitted */
+	u32 max_urb;
+
+	/* Maximum number of packets per URB */
+	u32 max_urb_packets;
+
+	/*set if stream in progress */
+	u8 refcnt;
 };
 
 struct uvc_device {
@@ -580,7 +588,6 @@ int uvc_query_buffer(struct uvc_video_queue *queue,
 int uvc_create_buffers(struct uvc_video_queue *queue,
 		       struct v4l2_create_buffers *v4l2_cb);
 int uvc_queue_buffer(struct uvc_video_queue *queue,
-		     struct media_device *mdev,
 		     struct v4l2_buffer *v4l2_buf);
 int uvc_export_buffer(struct uvc_video_queue *queue,
 		      struct v4l2_exportbuffer *exp);
