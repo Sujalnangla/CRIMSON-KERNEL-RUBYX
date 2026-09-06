@@ -7,6 +7,7 @@
 
 #ifndef __ASSEMBLY__
 
+#include <generated/autoconf.h>
 #include <asm/unistd.h>
 #include <asm/errno.h>
 
