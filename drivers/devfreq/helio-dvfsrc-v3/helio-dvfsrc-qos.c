@@ -21,7 +21,7 @@
 #include <mtk_qos_ipi.h>
 #endif
 
-#include <helio-dvfsrc-qos.h>
+#include "helio-dvfsrc-qos.h"
 
 struct helio_dvfsrc *dvfsrc;
 
