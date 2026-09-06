@@ -18,7 +18,7 @@
 
 #include "mi_disp_config.h"
 #include <uapi/drm/mi_disp.h>
-#include "mtk_panel_ext.h"
+#include "../mtk_panel_ext.h"
 
 #define DISP_FEATURE_DEVICE_NAME "disp_feature"
 

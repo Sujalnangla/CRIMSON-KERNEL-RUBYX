@@ -35,6 +35,7 @@ subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/audio_ipi/common_v2/tasks
 endif
 subdir-ccflags-y += -I$(srctree)/sound/soc/mediatek/common
 subdir-ccflags-y += -I$(srctree)/sound/soc/mediatek/$(MTK_PLATFORM)/
+subdir-ccflags-y += -I$(srctree)/sound/soc/mediatek/audio_dsp/v2
 endif
 
 # adsp driver path
