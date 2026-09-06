@@ -45,12 +45,14 @@ jobs:
           sudo -S -p '' apt-get install -y clang-14 lld-14 llvm-14
           sudo -S -p '' update-alternatives --install /usr/bin/clang clang /usr/bin/clang-14 100
           sudo -S -p '' update-alternatives --install /usr/bin/lld lld /usr/bin/lld-14 100
+          sudo -S -p '' update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-14 100
+          sudo -S -p '' update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-14 100
 
       - name: Verify Clang/LLD versions
         run: |
-          clang-14 --version
-          ld.lld-14 --version
-          llvm-ar-14 --version
+          clang --version
+          ld.lld --version
+          llvm-ar --version
 
       - name: Generate defconfig
         run: |
