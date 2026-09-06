@@ -39,24 +39,42 @@ jobs:
             rsync \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu
-
-      - name: Install Clang/LLVM 14
+       - name: Install Clang/LLVM 14
         run: |
-          sudo -S -p '' apt-get install -y clang-14 lld-14 llvm-14
-          sudo -S -p '' update-alternatives --install /usr/bin/clang clang /usr/bin/clang-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/lld lld /usr/bin/lld-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-size llvm-size /usr/bin/llvm-size-14 100
-          sudo -S -p '' update-alternatives --install /usr/bin/llvm-strings llvm-strings /usr/bin/llvm-strings-14 100
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-14 \
+            lld-14 \
+            llvm-14 \
+            llvm-14-tools
 
-      - name: Verify Clang/LLD/LLVM binutils
+          echo "/usr/lib/llvm-14/bin" >> "$GITHUB_PATH"
+
+      - name: Verify LLVM toolchain
         run: |
+          echo "===== TOOL PATHS ====="
+          command -v clang
+          command -v clang-14
+          command -v ld.lld
+          command -v llvm-ar
+          command -v llvm-nm
+          command -v llvm-objdump
+          command -v llvm-objcopy
+          command -v llvm-strip
+          command -v llvm-readelf
+          command -v llvm-size
+          command -v llvm-strings
+
+          echo
+          echo "===== REAL PATHS ====="
+          readlink -f "$(command -v clang)"
+          readlink -f "$(command -v ld.lld)"
+          readlink -f "$(command -v llvm-ar)"
+          readlink -f "$(command -v llvm-nm)"
+          readlink -f "$(command -v llvm-objdump)"
+
+          echo
+          echo "===== VERSIONS ====="
           clang --version
           ld.lld --version
           llvm-ar --version
