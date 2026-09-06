@@ -1,0 +1,110 @@
+name: Build Crimson Ruby Kernel
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: /bin/bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo -S -p '' apt-get update
+          sudo -S -p '' apt-get install -y \
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libelf-dev \
+            libdw-dev \
+            libncurses-dev \
+            liblz4-tool \
+            libxml2-utils \
+            xsltproc \
+            cpio \
+            kmod \
+            python3 \
+            rsync \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+
+      - name: Install Clang/LLVM 14
+        run: |
+          sudo -S -p '' apt-get install -y clang-14 lld-14 llvm-14
+          sudo -S -p '' update-alternatives --install /usr/bin/clang clang /usr/bin/clang-14 100
+          sudo -S -p '' update-alternatives --install /usr/bin/lld lld /usr/bin/lld-14 100
+
+      - name: Verify Clang/LLD versions
+        run: |
+          clang --version | head -1
+          lld --version | head -1
+          llvm-ar --version | head -1
+
+      - name: Generate defconfig
+        run: |
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- ruby_defconfig
+
+      - name: Verify defconfig
+        run: |
+          test -f out/.config || (echo "FAIL: out/.config not generated" && exit 1)
+          grep -q 'CONFIG_KSU=y' out/.config || (echo "FAIL: CONFIG_KSU not in out/.config" && exit 1)
+          grep -q 'CONFIG_KSU_MANUAL_HOOK=y' out/.config || (echo "FAIL: CONFIG_KSU_MANUAL_HOOK not in out/.config" && exit 1)
+
+      - name: Build kernel
+        run: |
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Verify artifacts
+        run: |
+          echo "===== ARTIFACT VERIFICATION ====="
+          for f in \
+            out/arch/arm64/boot/Image \
+            out/arch/arm64/boot/Image.gz \
+            out/arch/arm64/boot/Image.gz-dtb \
+            out/arch/arm64/boot/dts/mediatek/mt6877.dtb \
+            out/arch/arm64/boot/dts/mediatek/ruby.dtbo
+          do
+            if [ -f "$f" ]; then
+              echo "PRESENT: $f"
+              ls -lh "$f"
+            else
+              echo "MISSING: $f"
+              exit 1
+            fi
+          done
+
+          echo
+          echo "===== ARTIFACT HASHES ====="
+          sha256sum \
+            out/arch/arm64/boot/Image \
+            out/arch/arm64/boot/Image.gz \
+            out/arch/arm64/boot/Image.gz-dtb \
+            out/arch/arm64/boot/dts/mediatek/mt6877.dtb \
+            out/arch/arm64/boot/dts/mediatek/ruby.dtbo
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: crimson-ruby-kernel
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/dts/mediatek/mt6877.dtb
+            out/arch/arm64/boot/dts/mediatek/ruby.dtbo
+      - name: Verify source integrity
+        run: |
+          git status --short
+          git diff --exit-code -- ':!out/'
