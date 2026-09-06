@@ -48,9 +48,9 @@ jobs:
 
       - name: Verify Clang/LLD versions
         run: |
-          clang --version | head -1
-          lld --version | head -1
-          llvm-ar --version | head -1
+          clang-14 --version
+          ld.lld-14 --version
+          llvm-ar-14 --version
 
       - name: Generate defconfig
         run: |
