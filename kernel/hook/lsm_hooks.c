@@ -11,6 +11,12 @@
 #include "setuid_hook.h"
 #include "manager/throne_tracker.h"
 
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs.h>
+#include <linux/susfs_def.h>
+#include "selinux/selinux.h"
+#endif
+
 #ifndef KSU_KPROBES_HOOK
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) ||                           \
@@ -82,7 +88,7 @@ static int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 
 	pr_debug("renameat: %s -> %s, new path: %s\n", old_dentry->d_name.name,
-		new_dentry->d_name.name, buf);
+			new_dentry->d_name.name, buf);
 
 	// Thread-safe execution using atomic operations to prevent race conditions
 	// if system_server threads execute this hook concurrently.
@@ -129,6 +135,216 @@ int ksu_inode_permission(struct inode *inode, int mask)
 	return 0;
 }
 
+#ifdef CONFIG_KSU_SUSFS
+
+#define KERNEL_SU_OPTION 0xDEADBEEF
+
+static long do_susfs_add_sus_path(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_add_sus_path(&user_info);
+	return 0;
+}
+
+static long do_susfs_add_sus_path_loop(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_add_sus_path_loop(&user_info);
+	return 0;
+}
+
+static long do_susfs_hide_sus_mnts_for_non_su_procs(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_set_hide_sus_mnts_for_non_su_procs(&user_info);
+	return 0;
+}
+
+static long do_susfs_add_sus_kstat(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_add_sus_kstat(&user_info);
+	return 0;
+}
+
+static long do_susfs_update_sus_kstat(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_update_sus_kstat(&user_info);
+	return 0;
+}
+
+static long do_susfs_add_sus_kstat_statically(unsigned long arg3)
+{
+	return -ENOTTY;
+}
+
+static long do_susfs_enable_log(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_enable_log(&user_info);
+	return 0;
+}
+
+static long do_susfs_set_cmdline_or_bootconfig(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_set_cmdline_or_bootconfig(&user_info);
+	return 0;
+}
+
+static long do_susfs_add_open_redirect(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_add_open_redirect(&user_info);
+	return 0;
+}
+
+static long do_susfs_show_version(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_show_version(&user_info);
+	return 0;
+}
+
+static long do_susfs_show_enabled_features(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_get_enabled_features(&user_info);
+	return 0;
+}
+
+static long do_susfs_show_variant(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_show_variant(&user_info);
+	return 0;
+}
+
+static long do_susfs_enable_avc_log_spoofing(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_set_avc_log_spoofing(&user_info);
+	return 0;
+}
+
+static long do_susfs_add_sus_map(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_add_sus_map(&user_info);
+	return 0;
+}
+
+static long do_susfs_set_uname(unsigned long arg3)
+{
+	void __user *user_info = (void __user *)arg3;
+	if (!user_info)
+		return -EFAULT;
+	susfs_set_uname(&user_info);
+	return 0;
+}
+
+static int ksu_task_prctl(int option, unsigned long arg2, unsigned long arg3,
+                          unsigned long arg4, unsigned long arg5)
+{
+	if (option != KERNEL_SU_OPTION)
+		return 0;
+
+	if (!is_ksu_domain())
+		return -EPERM;
+
+	long ret = 0;
+
+	switch (arg2) {
+	case CMD_SUSFS_ADD_SUS_PATH:
+		ret = do_susfs_add_sus_path(arg3);
+		break;
+	case CMD_SUSFS_ADD_SUS_PATH_LOOP:
+		ret = do_susfs_add_sus_path_loop(arg3);
+		break;
+	case CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS:
+		ret = do_susfs_hide_sus_mnts_for_non_su_procs(arg3);
+		break;
+	case CMD_SUSFS_ADD_SUS_KSTAT:
+		ret = do_susfs_add_sus_kstat(arg3);
+		break;
+	case CMD_SUSFS_UPDATE_SUS_KSTAT:
+		ret = do_susfs_update_sus_kstat(arg3);
+		break;
+	case CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY:
+		ret = do_susfs_add_sus_kstat_statically(arg3);
+		break;
+	case CMD_SUSFS_SET_UNAME:
+		ret = do_susfs_set_uname(arg3);
+		break;
+	case CMD_SUSFS_ENABLE_LOG:
+		ret = do_susfs_enable_log(arg3);
+		break;
+	case CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG:
+		ret = do_susfs_set_cmdline_or_bootconfig(arg3);
+		break;
+	case CMD_SUSFS_ADD_OPEN_REDIRECT:
+		ret = do_susfs_add_open_redirect(arg3);
+		break;
+	case CMD_SUSFS_SHOW_VERSION:
+		ret = do_susfs_show_version(arg3);
+		break;
+	case CMD_SUSFS_SHOW_ENABLED_FEATURES:
+		ret = do_susfs_show_enabled_features(arg3);
+		break;
+	case CMD_SUSFS_SHOW_VARIANT:
+		ret = do_susfs_show_variant(arg3);
+		break;
+	case CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING:
+		ret = do_susfs_enable_avc_log_spoofing(arg3);
+		break;
+	case CMD_SUSFS_ADD_SUS_MAP:
+		ret = do_susfs_add_sus_map(arg3);
+		break;
+	default:
+		ret = -ENOTTY;
+		break;
+	}
+
+	if (arg5) {
+		int err = ret < 0 ? ret : 0;
+		if (put_user(err, (int __user *)arg5)) {
+			if (ret == 0)
+				ret = -EFAULT;
+		}
+	}
+
+	return ret;
+}
+
+#endif /* CONFIG_KSU_SUSFS */
+
 static struct security_hook_list ksu_hooks[] = {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) ||                           \
 	defined(CONFIG_IS_HW_HISI) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
@@ -136,7 +352,10 @@ static struct security_hook_list ksu_hooks[] = {
 #endif
 	LSM_HOOK_INIT(inode_permission, ksu_inode_permission),
 	LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
-	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid)
+	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
+#ifdef CONFIG_KSU_SUSFS
+	LSM_HOOK_INIT(task_prctl, ksu_task_prctl),
+#endif
 };
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)

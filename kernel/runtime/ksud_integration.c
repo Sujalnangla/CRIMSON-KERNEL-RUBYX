@@ -176,10 +176,14 @@ static bool check_argv(struct user_arg_ptr argv, int index,
 
 static void ksu_initialize_selinux_tw_func(struct callback_head *cb)
 {
+	pr_info("KSU_TRACE: SELINUX_TASK_WORK ENTER pid=%d comm=%s jiffies=%lu\n",
+		current->pid, current->comm, jiffies);
 	apply_kernelsu_rules();
 	cache_sid();
 	setup_ksu_cred();
 	kfree(cb);
+	pr_info("KSU_TRACE: SELINUX_TASK_WORK EXIT pid=%d comm=%s jiffies=%lu\n",
+		current->pid, current->comm, jiffies);
 }
 
 // IMPORTANT NOTE: the call from execve_handler_pre WON'T provided correct value for envp and flags in GKI version

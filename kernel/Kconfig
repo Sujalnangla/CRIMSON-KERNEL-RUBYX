@@ -60,3 +60,86 @@ config KSU_KPROBES_HOOK
 	  This should not be used on kernel below 5.10.
 
 endmenu
+
+# SUSFS integration for KSU manual hook mode
+config KSU_SUSFS
+    bool "KernelSU SUSFS support"
+    depends on KSU
+    default y
+    help
+      Enable SUSFS (SuspendFS) integration for path hiding,
+      mount hiding, kstat spoofing, and other stealth features.
+
+if KSU_SUSFS
+
+config KSU_SUSFS_SUS_PATH
+    bool "SUSFS SUS_PATH support"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable SUS_PATH feature for hiding files/directories.
+
+config KSU_SUSFS_SUS_MOUNT
+    bool "SUSFS SUS_MOUNT support"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable SUS_MOUNT feature for hiding mount points.
+
+config KSU_SUSFS_SUS_KSTAT
+    bool "SUSFS SUS_KSTAT support"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable SUS_KSTAT feature for kstat spoofing.
+
+config KSU_SUSFS_ENABLE_LOG
+    bool "SUSFS enable log"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable SUSFS kernel logging.
+
+config KSU_SUSFS_SPOOF_UNAME
+    bool "SUSFS spoof uname"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable uname spoofing.
+
+config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+    bool "SUSFS spoof cmdline/bootconfig"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable cmdline or bootconfig spoofing.
+
+config KSU_SUSFS_OPEN_REDIRECT
+    bool "SUSFS open redirect"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable open redirect feature.
+
+config KSU_SUSFS_SUS_MAP
+    bool "SUSFS SUS_MAP support"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable SUS_MAP feature.
+
+config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+    bool "SUSFS hide KSU/SUSFS symbols"
+    depends on KSU_SUSFS
+    default n
+    help
+      Hide KSU and SUSFS kernel symbols.
+
+config KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING
+    bool "SUSFS enable AVC log spoofing"
+    depends on KSU_SUSFS
+    default n
+    help
+      Enable AVC log spoofing.
+
+endif # KSU_SUSFS
