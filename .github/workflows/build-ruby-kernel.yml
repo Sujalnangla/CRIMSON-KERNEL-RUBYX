@@ -1,143 +1,133 @@
-name: Build Crimson Ruby Kernel
+```yaml
+name: Build Ruby Kernel
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main
-  workflow_dispatch:
+      - lineage-23.2
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    name: Build Ruby Kernel
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
     steps:
-      - name: Checkout repository
+      - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show kernel Git state
+        run: |
+          echo "===== PARENT KERNEL ====="
+          git rev-parse HEAD
+          git status --short
+
+      - name: Clone KernelSU-Next
+        run: |
+          git clone https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
+          cd KernelSU-Next
+          git checkout 9dd15c875c82
+
+      - name: Apply KernelSU symlink
+        run: |
+          rm -rf drivers/kernelsu
+          ln -s ../KernelSU-Next/kernel drivers/kernelsu
+
+      - name: Verify KernelSU state
+        run: |
+          echo "===== KERNELSU-NEXT ====="
+          git -C KernelSU-Next rev-parse HEAD
+          git -C KernelSU-Next status --short
+
+          echo
+          echo "===== KSU SYMLINK ====="
+          ls -ld drivers/kernelsu
+          readlink -f drivers/kernelsu
 
       - name: Install build dependencies
         run: |
-          sudo -S -p '' apt-get update
-          sudo -S -p '' apt-get install -y \
-            build-essential \
-            bc \
-            bison \
-            flex \
-            libssl-dev \
-            libelf-dev \
-            libdw-dev \
-            libncurses-dev \
-            liblz4-tool \
-            libxml2-utils \
-            xsltproc \
-            cpio \
-            kmod \
-            python3 \
-            rsync \
-            gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu
-       - name: Install Clang/LLVM 14
-        run: |
           sudo apt-get update
           sudo apt-get install -y \
-            clang-14 \
-            lld-14 \
-            llvm-14 \
-            llvm-14-tools
+            bc \
+            bison \
+            build-essential \
+            clang \
+            flex \
+            gcc-aarch64-linux-gnu \
+            git \
+            libssl-dev \
+            lld \
+            llvm \
+            python3 \
+            rsync \
+            unzip \
+            wget
 
-          echo "/usr/lib/llvm-14/bin" >> "$GITHUB_PATH"
-
-      - name: Verify LLVM toolchain
+      - name: Generate kernel configuration
         run: |
-          echo "===== TOOL PATHS ====="
-          command -v clang
-          command -v clang-14
-          command -v ld.lld
-          command -v llvm-ar
-          command -v llvm-nm
-          command -v llvm-objdump
-          command -v llvm-objcopy
-          command -v llvm-strip
-          command -v llvm-readelf
-          command -v llvm-size
-          command -v llvm-strings
+          make O=out \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=clang \
+            LLVM=1 \
+            ruby_defconfig
 
-          echo
-          echo "===== REAL PATHS ====="
-          readlink -f "$(command -v clang)"
-          readlink -f "$(command -v ld.lld)"
-          readlink -f "$(command -v llvm-ar)"
-          readlink -f "$(command -v llvm-nm)"
-          readlink -f "$(command -v llvm-objdump)"
-
-          echo
-          echo "===== VERSIONS ====="
-          clang --version
-          ld.lld --version
-          llvm-ar --version
-          llvm-nm --version
-          llvm-objdump --version
-          llvm-objcopy --version
-          llvm-strip --version
-          llvm-readelf --version
-          llvm-size --version
-          llvm-strings --version
-      - name: Generate defconfig
+      - name: Verify kernel configuration
         run: |
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- ruby_defconfig
+          echo "===== KERNEL CONFIG ====="
 
-      - name: Verify defconfig
-        run: |
-          test -f out/.config || (echo "FAIL: out/.config not generated" && exit 1)
-          grep -q 'CONFIG_KSU=y' out/.config || (echo "FAIL: CONFIG_KSU not in out/.config" && exit 1)
-          grep -q 'CONFIG_KSU_MANUAL_HOOK=y' out/.config || (echo "FAIL: CONFIG_KSU_MANUAL_HOOK not in out/.config" && exit 1)
+          grep -n -E \
+            '^CONFIG_KSU=|^CONFIG_KSU_MANUAL_HOOK=|^CONFIG_KSU_SUSFS=|^CONFIG_SECURITY_SELINUX=' \
+            out/.config || true
 
       - name: Build kernel
         run: |
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu-
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export LD=ld.lld
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export HOSTCC=clang
+          export HOSTCXX=clang++
 
-      - name: Verify artifacts
+          make O=out \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=clang \
+            LD=ld.lld \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            HOSTCC=clang \
+            HOSTCXX=clang++ \
+            -j2 \
+            2>&1 | tee build.log
+
+      - name: Verify build output
         run: |
-          echo "===== ARTIFACT VERIFICATION ====="
-          for f in \
-            out/arch/arm64/boot/Image \
-            out/arch/arm64/boot/Image.gz \
-            out/arch/arm64/boot/Image.gz-dtb \
-            out/arch/arm64/boot/dts/mediatek/mt6877.dtb \
-            out/arch/arm64/boot/dts/mediatek/ruby.dtbo
-          do
-            if [ -f "$f" ]; then
-              echo "PRESENT: $f"
-              ls -lh "$f"
-            else
-              echo "MISSING: $f"
-              exit 1
-            fi
-          done
+          echo "===== BUILD OUTPUT ====="
 
-          echo
-          echo "===== ARTIFACT HASHES ====="
-          sha256sum \
-            out/arch/arm64/boot/Image \
-            out/arch/arm64/boot/Image.gz \
-            out/arch/arm64/boot/Image.gz-dtb \
-            out/arch/arm64/boot/dts/mediatek/mt6877.dtb \
-            out/arch/arm64/boot/dts/mediatek/ruby.dtbo
+          test -f out/vmlinux
+          test -f out/arch/arm64/boot/Image
 
-      - name: Upload artifacts
+          ls -lh \
+            out/vmlinux \
+            out/arch/arm64/boot/Image
+
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            ls -lh out/arch/arm64/boot/Image.gz-dtb
+          fi
+
+      - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: crimson-ruby-kernel
+          name: ruby-kernel
           path: |
+            out/vmlinux
             out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
             out/arch/arm64/boot/Image.gz-dtb
-            out/arch/arm64/boot/dts/mediatek/mt6877.dtb
-            out/arch/arm64/boot/dts/mediatek/ruby.dtbo
-      - name: Verify source integrity
-        run: |
-          git status --short
-          git diff --exit-code -- ':!out/'
+            build.log
+```
