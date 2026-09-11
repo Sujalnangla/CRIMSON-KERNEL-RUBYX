@@ -57,6 +57,7 @@ jobs:
           set -euxo pipefail
           rm -rf KernelSU-Next
           git clone -b susfs --depth=1 https://github.com/wodanesdag/KernelSU-Next.git KernelSU-Next
+          git -C KernelSU-Next remote set-head origin susfs
           bash KernelSU-Next/kernel/setup.sh susfs
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
