@@ -12,8 +12,7 @@ env:
   ARCH: arm64
   OUT_DIR: ${{ github.workspace }}/out
   KERNEL_DEFCONFIG: ruby_defconfig
-  TOOLCHAIN_REPO: https://gitlab.com/wodanesdag/android_prebuilts_clang_host_linux-x86_clang-r563880
-  TOOLCHAIN_BRANCH: master
+  TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
   TOOLCHAIN_DIR: clang
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
   ANYKERNEL_BRANCH: eclipse-v2
@@ -58,10 +57,16 @@ jobs:
 
       - name: Fetch Android Clang r563880
         run: |
-          git clone --depth=1 --branch "$TOOLCHAIN_BRANCH" "$TOOLCHAIN_REPO" "$TOOLCHAIN_DIR"
+          set -euxo pipefail
+          rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
+          mkdir -p "$TOOLCHAIN_DIR"
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+            "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
+          tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
           test -x "$TOOLCHAIN_DIR/bin/clang"
           test -x "$TOOLCHAIN_DIR/bin/ld.lld"
           test -x "$TOOLCHAIN_DIR/bin/aarch64-linux-android-ld"
+          "$TOOLCHAIN_DIR/bin/clang" --version | head -1
 
       - name: Configure kernel
         run: |
@@ -115,7 +120,7 @@ jobs:
             echo "Commit: $GITHUB_SHA"
             echo "Kernel source: repository root"
             echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
-            echo "Toolchain: $TOOLCHAIN_REPO@$TOOLCHAIN_BRANCH"
+            echo "Toolchain archive: $TOOLCHAIN_ARCHIVE"
             echo "Expected release: $EXPECTED_KERNEL_RELEASE"
           } | tee "$GITHUB_WORKSPACE/build-source.txt"
 
