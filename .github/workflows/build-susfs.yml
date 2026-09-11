@@ -1,0 +1,183 @@
+name: Build Crimson Ruby Kernel - SUSFS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  OUT_DIR: ${{ github.workspace }}/out
+  KERNEL_NAME: kernel
+  KERNEL_REPO: https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git
+  KERNEL_REF: 569bc23c41974d3506000e9851c1ca37aca33884
+  KERNEL_DEFCONFIG: ruby_defconfig
+  ARCH: arm64
+  TOOLCHAIN_REPO: https://gitlab.com/wodanesdag/android_prebuilts_clang_host_linux-x86_clang-r563880
+  TOOLCHAIN_BRANCH: master
+  TOOLCHAIN_DIR: clang
+  ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
+  ANYKERNEL_BRANCH: eclipse-v2
+
+jobs:
+  build:
+    name: Build 4.19.325-cip135-st19-Crimson-ruby SUSFS
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Crimson build wrapper
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex g++-multilib \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev \
+            libfl-dev libncurses-dev libssl-dev lld llvm python3 rsync \
+            unzip zip jq
+
+      - name: Configure ccache
+        run: |
+          ccache --set-config=compression=false
+          ccache --set-config=max_size=5G
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: crimson-ruby-susfs-${{ runner.os }}-${{ env.KERNEL_REF }}-${{ hashFiles('localversion-*') }}
+          restore-keys: |
+            crimson-ruby-susfs-${{ runner.os }}-
+
+      - name: Clone exact Rajdeep kernel source
+        run: |
+          git clone --recursive --depth=1 "$KERNEL_REPO" "$KERNEL_NAME"
+          git -C "$KERNEL_NAME" fetch --depth=1 origin "$KERNEL_REF"
+          git -C "$KERNEL_NAME" checkout --detach "$KERNEL_REF"
+          test "$(git -C "$KERNEL_NAME" rev-parse HEAD)" = "$KERNEL_REF"
+          echo "Kernel source commit: $(git -C "$KERNEL_NAME" rev-parse HEAD)"
+
+      - name: Clone Android clang r563880
+        run: |
+          git clone --depth=1 --branch "$TOOLCHAIN_BRANCH" "$TOOLCHAIN_REPO" "$TOOLCHAIN_DIR"
+          echo "$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Integrate KernelSU Next SUSFS
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          echo "" > .scmversion
+          git clone --depth=1 -b susfs https://github.com/wodanesdag/KernelSU-Next.git
+          bash KernelSU-Next/kernel/setup.sh susfs
+          echo "KernelSU Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
+          echo "KernelSU Next version: $(expr $(git -C KernelSU-Next rev-list --count HEAD) + 30200)"
+
+      - name: Apply ioprio merge guard
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('block/blk-merge.c')
+          s = p.read_text()
+
+          old = '''\tif (req->write_hint != next->write_hint)\n\t\treturn NULL;\n\n\t/*\n\t * If we are allowed to merge, then append bio list'''
+          new = '''\tif (req->write_hint != next->write_hint)\n\t\treturn NULL;\n\n\tif (req->ioprio != next->ioprio)\n\t\treturn NULL;\n\n\t/*\n\t * If we are allowed to merge, then append bio list'''
+          if s.count(old) != 1:
+              raise SystemExit(f'blk-merge request guard context count={s.count(old)}')
+          s = s.replace(old, new, 1)
+
+          old = '''\tif (rq->write_hint != bio->bi_write_hint)\n\t\treturn false;\n\n\t/* Only merge if the crypt contexts are compatible */'''
+          new = '''\tif (rq->write_hint != bio->bi_write_hint)\n\t\treturn false;\n\n\tif (rq->ioprio != bio_prio(bio))\n\t\treturn false;\n\n\t/* Only merge if the crypt contexts are compatible */'''
+          if s.count(old) != 1:
+              raise SystemExit(f'blk-merge bio guard context count={s.count(old)}')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('block/blk-core.c')
+          s = p.read_text()
+          old = '''\treq->biotail->bi_next = bio;\n\treq->biotail = bio;\n\treq->__data_len += bio->bi_iter.bi_size;\n\treq->ioprio = ioprio_best(req->ioprio, bio_prio(bio));'''
+          new = '''\tif (req->ioprio != bio_prio(bio))\n\t\treturn false;\n\n\treq->biotail->bi_next = bio;\n\treq->biotail = bio;\n\treq->__data_len += bio->bi_iter.bi_size;\n\treq->ioprio = ioprio_best(req->ioprio, bio_prio(bio));'''
+          if s.count(old) != 1:
+              raise SystemExit(f'blk-core bio merge context count={s.count(old)}')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+          git diff --check
+          git diff -- block/blk-merge.c block/blk-core.c
+
+      - name: Record exact build identity
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          {
+            echo "Kernel name: 4.19.325-cip135-st19-Crimson-ruby"
+            echo "Repository: $KERNEL_REPO"
+            echo "Base commit: $(git rev-parse HEAD)"
+            echo "Working tree after patches:"
+            git status --short
+            echo "KernelSU Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
+            echo "Clang:"
+            clang --version
+            echo "LLD:"
+            ld.lld --version
+          } | tee ../build-info.txt
+
+      - name: Make defconfig
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          make O="$OUT_DIR" ARCH="$ARCH" "$KERNEL_DEFCONFIG"
+          cp "$OUT_DIR/.config" ../config-after-defconfig.txt
+
+      - name: Build kernel
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          make -j"$(nproc)" O="$OUT_DIR" \
+            ARCH="$ARCH" \
+            CC="ccache clang" \
+            LLVM=1 LLVM_IAS=1 \
+            LD=ld.lld \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            CROSS_COMPILE="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/aarch64-linux-gnu-" \
+            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/arm-linux-gnueabi-"
+
+      - name: Verify kernel identity
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          test -s "$OUT_DIR/arch/arm64/boot/Image"
+          strings "$OUT_DIR/arch/arm64/boot/Image" | grep -m1 '4.19.325-cip135-st19-Crimson-ruby' || true
+          sha256sum "$OUT_DIR/arch/arm64/boot/Image"
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
+            sha256sum "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+          elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
+            sha256sum "$OUT_DIR/arch/arm64/boot/Image.gz"
+          fi
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" AnyKernel3/Image.gz
+          else
+            cp "$OUT_DIR/arch/arm64/boot/Image.gz" AnyKernel3/Image.gz
+          fi
+          cp build-info.txt config-after-defconfig.txt AnyKernel3/
+          cd AnyKernel3
+          zip -q -r ../Crimson-Ruby-4.19.325-cip135-st19-SUSFS-ioprio.zip .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-4.19.325-cip135-st19-SUSFS-ioprio-${{ github.sha }}
+          path: |
+            Crimson-Ruby-4.19.325-cip135-st19-SUSFS-ioprio.zip
+            build-info.txt
+            config-after-defconfig.txt
+          if-no-files-found: error
+          retention-days: 14
