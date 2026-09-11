@@ -21,6 +21,7 @@ env:
   TOOLCHAIN_DIR: clang
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
   ANYKERNEL_BRANCH: eclipse-v2
+  EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-st19-Crimson-ruby
 
 jobs:
   build:
@@ -38,9 +39,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex g++-multilib \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev \
-            libfl-dev libncurses-dev libssl-dev lld llvm python3 rsync \
-            unzip zip jq
+            git libelf-dev libfl-dev libncurses-dev libssl-dev \
+            lld llvm python3 rsync unzip zip jq
 
       - name: Configure ccache
         run: |
@@ -61,6 +61,7 @@ jobs:
           git -C "$KERNEL_NAME" fetch --depth=1 origin "$KERNEL_REF"
           git -C "$KERNEL_NAME" checkout --detach "$KERNEL_REF"
           test "$(git -C "$KERNEL_NAME" rev-parse HEAD)" = "$KERNEL_REF"
+          cp "$GITHUB_WORKSPACE/localversion-crimson" "$KERNEL_NAME/localversion-crimson"
           echo "Kernel source commit: $(git -C "$KERNEL_NAME" rev-parse HEAD)"
 
       - name: Clone Android clang r563880
@@ -116,6 +117,7 @@ jobs:
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
           {
+            echo "Expected kernel release: $EXPECTED_KERNEL_RELEASE"
             echo "Kernel name: 4.19.325-cip135-st19-Crimson-ruby"
             echo "Repository: $KERNEL_REPO"
             echo "Base commit: $(git rev-parse HEAD)"
@@ -151,7 +153,10 @@ jobs:
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
           test -s "$OUT_DIR/arch/arm64/boot/Image"
-          strings "$OUT_DIR/arch/arm64/boot/Image" | grep -m1 '4.19.325-cip135-st19-Crimson-ruby' || true
+          RELEASE="$(make -s O="$OUT_DIR" ARCH="$ARCH" kernelrelease)"
+          echo "Built kernel release: $RELEASE"
+          test "$RELEASE" = "$EXPECTED_KERNEL_RELEASE"
+          strings "$OUT_DIR/arch/arm64/boot/Image" | grep -m1 "$EXPECTED_KERNEL_RELEASE"
           sha256sum "$OUT_DIR/arch/arm64/boot/Image"
           if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
             sha256sum "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
