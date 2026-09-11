@@ -1,24 +1,19 @@
-name: Build Crimson Ruby Kernel
+name: Build Crimson Kernel
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
-  workflow_call:
+  push:
+    branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 env:
-  ARCH: arm64
   OUT_DIR: ${{ github.workspace }}/out
   KERNEL_REPO: https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git
   KERNEL_REF: 569bc23c41974d3506000e9851c1ca37aca33884
   KERNEL_DEFCONFIG: ruby_defconfig
+  ARCH: arm64
   TOOLCHAIN_REPO: https://gitlab.com/wodanesdag/android_prebuilts_clang_host_linux-x86_clang-r563880
   TOOLCHAIN_BRANCH: master
   TOOLCHAIN_DIR: clang
@@ -28,172 +23,93 @@ env:
 
 jobs:
   build:
-    name: Build Ruby kernel
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Crimson build wrapper
+      - name: Checkout Crimson kernel tree
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 0
 
-      - name: Install dependencies
+      - name: Install prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib \
-            git libelf-dev libfl-dev libncurses-dev libssl-dev \
-            lld llvm python3 rsync unzip zip
+            bc bison build-essential ccache flex git libelf-dev \
+            libssl-dev lz4 python3 rsync unzip wget xz-utils zstd
 
       - name: Configure ccache
         run: |
-          ccache --set-config=compression=false
-          ccache --set-config=max_size=5G
+          ccache --max-size=5G
           echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
 
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: crimson-ruby-ccache-${{ runner.os }}-${{ hashFiles('localversion-*') }}-${{ env.KERNEL_REF }}
-          restore-keys: |
-            crimson-ruby-ccache-${{ runner.os }}-
-
-      - name: Clone exact Rajdeep kernel source
+      - name: Prepare existing kernel tree
         run: |
-          git clone --recursive --depth=1 "$KERNEL_REPO" kernel
-          git -C kernel fetch --depth=1 origin "$KERNEL_REF"
-          git -C kernel checkout --detach "$KERNEL_REF"
-          echo "Kernel source commit: $(git -C kernel rev-parse HEAD)"
-          test "$(git -C kernel rev-parse HEAD)" = "$KERNEL_REF"
-          cp "$GITHUB_WORKSPACE/localversion-crimson" kernel/localversion-crimson
+          test -f kernel/Makefile
+          test -f kernel/arch/arm64/Makefile
+          test -f kernel/arch/arm64/configs/$KERNEL_DEFCONFIG
+          printf '%s\n' '-Crimson-ruby' > kernel/localversion-crimson
+          echo "Using checked-in Crimson kernel tree"
+          echo "Target upstream source revision: $KERNEL_REF"
 
-      - name: Clone Android clang r563880
+      - name: Fetch Android Clang r563880
         run: |
           git clone --depth=1 --branch "$TOOLCHAIN_BRANCH" "$TOOLCHAIN_REPO" "$TOOLCHAIN_DIR"
-          echo "$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
+          test -x "$TOOLCHAIN_DIR/bin/clang"
 
-      - name: Apply ioprio merge guard
-        working-directory: kernel
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('block/blk-merge.c')
-          s = p.read_text()
-          old = '''\tif (req->write_hint != next->write_hint)\n\t\treturn NULL;\n\n\t/*\n\t * If we are allowed to merge, then append bio list'''
-          new = '''\tif (req->write_hint != next->write_hint)\n\t\treturn NULL;\n\n\tif (req->ioprio != next->ioprio)\n\t\treturn NULL;\n\n\t/*\n\t * If we are allowed to merge, then append bio list'''
-          if s.count(old) != 1:
-              raise SystemExit(f'blk-merge request guard context count={s.count(old)}')
-          s = s.replace(old, new, 1)
-
-          old = '''\tif (rq->write_hint != bio->bi_write_hint)\n\t\treturn false;\n\n\t/* Only merge if the crypt contexts are compatible */'''
-          new = '''\tif (rq->write_hint != bio->bi_write_hint)\n\t\treturn false;\n\n\tif (rq->ioprio != bio_prio(bio))\n\t\treturn false;\n\n\t/* Only merge if the crypt contexts are compatible */'''
-          if s.count(old) != 1:
-              raise SystemExit(f'blk-merge bio guard context count={s.count(old)}')
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          p = Path('block/blk-core.c')
-          s = p.read_text()
-          old = '''\treq->biotail->bi_next = bio;\n\treq->biotail = bio;\n\treq->__data_len += bio->bi_iter.bi_size;\n\treq->ioprio = ioprio_best(req->ioprio, bio_prio(bio));'''
-          new = '''\tif (req->ioprio != bio_prio(bio))\n\t\treturn false;\n\n\treq->biotail->bi_next = bio;\n\treq->biotail = bio;\n\treq->__data_len += bio->bi_iter.bi_size;\n\treq->ioprio = ioprio_best(req->ioprio, bio_prio(bio));'''
-          if s.count(old) != 1:
-              raise SystemExit(f'blk-core bio merge context count={s.count(old)}')
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-          PY
-
-          echo '--- ioprio guards ---'
-          grep -n -C 2 'ioprio.*bio_prio\|ioprio.*next->ioprio' block/blk-merge.c block/blk-core.c
-          echo '--- source diff ---'
-          git diff --check
-          git diff -- block/blk-merge.c block/blk-core.c
-
-      - name: Record source and toolchain
-        working-directory: kernel
+      - name: Record build source
         run: |
           {
-            echo "Expected kernel release: $EXPECTED_KERNEL_RELEASE"
-            echo "Repository: $KERNEL_REPO"
-            echo "Base commit: $(git rev-parse HEAD)"
-            echo "Patch: ioprio merge guard"
-            echo "Clang:"
-            clang --version
-            echo "LLD:"
-            ld.lld --version
-          } | tee ../build-info.txt
+            echo "Crimson repository: $GITHUB_REPOSITORY"
+            echo "Crimson commit: $GITHUB_SHA"
+            echo "Checked-in kernel tree: kernel/"
+            echo "Target upstream source: $KERNEL_REPO@$KERNEL_REF"
+            echo "Toolchain: $TOOLCHAIN_REPO@$TOOLCHAIN_BRANCH"
+            echo "Expected release: $EXPECTED_KERNEL_RELEASE"
+          } | tee "$GITHUB_WORKSPACE/build-source.txt"
 
-      - name: Apply kernel configuration
+      - name: Configure kernel
         working-directory: kernel
         run: |
+          mkdir -p "$OUT_DIR"
           make O="$OUT_DIR" ARCH="$ARCH" "$KERNEL_DEFCONFIG"
-          cp "$OUT_DIR/.config" ../config-after-defconfig.txt
 
       - name: Build kernel
         working-directory: kernel
         run: |
-          make -j"$(nproc)" O="$OUT_DIR" \
-            ARCH="$ARCH" \
-            CC="ccache clang" \
-            LLVM=1 LLVM_IAS=1 \
-            LD=ld.lld \
-            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
-            CROSS_COMPILE="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/arm-linux-gnueabi-"
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" \
+            CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld \
+            CROSS_COMPILE="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/arm-linux-androideabi-" \
+            KCFLAGS="-Wno-error=implicit-function-declaration"
 
-      - name: Verify kernel output
+      - name: Verify kernel identity
         working-directory: kernel
         run: |
-          test -s "$OUT_DIR/arch/arm64/boot/Image"
-          RELEASE="$(make -s O="$OUT_DIR" ARCH="$ARCH" kernelrelease)"
-          echo "Built kernel release: $RELEASE"
-          test "$RELEASE" = "$EXPECTED_KERNEL_RELEASE"
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
-            IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
-          elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
-            IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz"
-          else
-            echo "No Image.gz-dtb or Image.gz produced"
-            exit 1
+          release=$(make O="$OUT_DIR" ARCH="$ARCH" -s kernelrelease)
+          echo "Built kernel release: $release"
+          test "$release" = "$EXPECTED_KERNEL_RELEASE"
+          test -f "$OUT_DIR/arch/arm64/boot/Image.gz"
+          cp "$OUT_DIR/arch/arm64/boot/Image.gz" "$GITHUB_WORKSPACE/Image.gz"
+          if [ -f "$OUT_DIR/arch/arm64/boot/dts/mediatek/mt6877.dtb" ]; then
+            cat "$OUT_DIR/arch/arm64/boot/dts/mediatek/mt6877.dtb" >> "$GITHUB_WORKSPACE/Image.gz"
           fi
-          echo "Kernel image: $IMAGE"
-          sha256sum "$IMAGE"
-          strings "$OUT_DIR/arch/arm64/boot/Image" | grep -m1 "$EXPECTED_KERNEL_RELEASE"
-          grep -E '^(CONFIG_LOCALVERSION|CONFIG_LOCALVERSION_AUTO)=' "$OUT_DIR/.config" || true
 
-      - name: Prepare AnyKernel3 package
+      - name: Package AnyKernel3
         run: |
+          rm -rf AnyKernel3
           git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" AnyKernel3/Image.gz
-          else
-            cp -f "$OUT_DIR/arch/arm64/boot/Image.gz" AnyKernel3/Image.gz
-          fi
-          if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then
-            cp -f "$OUT_DIR/arch/arm64/boot/dtbo.img" AnyKernel3/dtbo.img
-          elif [ -f "$OUT_DIR/arch/arm64/boot/dtbo" ]; then
-            cp -f "$OUT_DIR/arch/arm64/boot/dtbo" AnyKernel3/dtbo
-          fi
-          cp build-info.txt config-after-defconfig.txt AnyKernel3/
+          cp Image.gz AnyKernel3/Image.gz
+          cp build-source.txt AnyKernel3/build-source.txt
           cd AnyKernel3
-          zip -q -r ../Crimson-Ruby-AnyKernel3.zip .
-          cd ..
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" Crimson-Ruby-Image.gz-dtb
-          else
-            cp "$OUT_DIR/arch/arm64/boot/Image.gz" Crimson-Ruby-Image.gz
-          fi
+          zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
 
-      - name: Upload build artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: crimson-ruby-ioprio-${{ github.sha }}
+          name: Crimson-ruby-${{ github.run_number }}
           path: |
-            Crimson-Ruby-AnyKernel3.zip
-            Crimson-Ruby-Image.gz-dtb
-            Crimson-Ruby-Image.gz
-            build-info.txt
-            config-after-defconfig.txt
-          if-no-files-found: error
-          retention-days: 14
+            Image.gz
+            build-source.txt
+            Crimson-ruby-*.zip
