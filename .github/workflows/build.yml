@@ -67,16 +67,22 @@ jobs:
           tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
           test -x "$TOOLCHAIN_DIR/bin/clang"
           test -x "$TOOLCHAIN_DIR/bin/ld.lld"
-          test -x "$TOOLCHAIN_DIR/bin/aarch64-linux-android-ld"
+          test -x "$TOOLCHAIN_DIR/bin/llvm-ar"
+          test -x "$TOOLCHAIN_DIR/bin/llvm-nm"
+          test -x "$TOOLCHAIN_DIR/bin/llvm-objcopy"
+          test -x "$TOOLCHAIN_DIR/bin/llvm-objdump"
+          test -x "$TOOLCHAIN_DIR/bin/llvm-readelf"
+          test -x "$TOOLCHAIN_DIR/bin/llvm-strip"
           "$TOOLCHAIN_DIR/bin/clang" --version | head -1
 
       - name: Configure kernel
         run: |
           set -eux
           rm -rf "$OUT_DIR"
-          make O="$OUT_DIR" ARCH="$ARCH" "$KERNEL_DEFCONFIG"
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
           sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
-          make O="$OUT_DIR" ARCH="$ARCH" olddefconfig
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
           grep '^CONFIG_LOCALVERSION=' "$OUT_DIR/.config"
 
       - name: Build kernel
@@ -87,8 +93,6 @@ jobs:
             CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
-            CROSS_COMPILE="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/aarch64-linux-android-" \
-            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/arm-linux-androideabi-" \
             KCFLAGS="-Wno-error=implicit-function-declaration"
 
       - name: Verify kernel output
