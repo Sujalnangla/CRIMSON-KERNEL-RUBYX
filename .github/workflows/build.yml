@@ -1,5 +1,7 @@
 name: Build Crimson Ruby Kernel
 
+run-name: Build Crimson Ruby Kernel #${{ github.run_number }}
+
 on:
   workflow_dispatch:
   push:
@@ -73,8 +75,6 @@ jobs:
           set -eux
           rm -rf "$OUT_DIR"
           make O="$OUT_DIR" ARCH="$ARCH" "$KERNEL_DEFCONFIG"
-          # The source defconfig carries the vendor localversion; Crimson's
-          # committed localversion file is the single release-name suffix.
           sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
           make O="$OUT_DIR" ARCH="$ARCH" olddefconfig
           grep '^CONFIG_LOCALVERSION=' "$OUT_DIR/.config"
