@@ -52,6 +52,18 @@ jobs:
           echo "Kernel version: $(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
           git submodule status --recursive
 
+      - name: Integrate KernelSU-Next SUSFS
+        run: |
+          set -euxo pipefail
+          rm -rf KernelSU-Next
+          git clone -b susfs --depth=1 https://github.com/wodanesdag/KernelSU-Next.git KernelSU-Next
+          bash KernelSU-Next/kernel/setup.sh susfs
+          test -L drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+          grep -q 'CONFIG_KSU_SUSFS' drivers/kernelsu/Kconfig
+          grep -q 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+          echo 'KernelSU-Next + SUSFS integration ready'
+
       - name: Configure ccache
         run: |
           ccache --max-size=5G
@@ -81,10 +93,14 @@ jobs:
           rm -rf "$OUT_DIR"
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
+          ./scripts/config --file "$OUT_DIR/.config" \
+            --enable KSU \
+            --enable KSU_SUSFS \
+            --enable KSU_MANUAL_HOOK
           sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
           echo 'CONFIG_LOCALVERSION_AUTO=n' >> "$OUT_DIR/.config"
           make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
-          grep -E '^CONFIG_LOCALVERSION(_AUTO)?=' "$OUT_DIR/.config"
+          grep -E '^CONFIG_(KSU|KSU_SUSFS|KSU_MANUAL_HOOK|LOCALVERSION(_AUTO)?)=' "$OUT_DIR/.config"
 
       - name: Build kernel
         run: |
@@ -128,6 +144,8 @@ jobs:
             echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
             echo "Toolchain archive: $TOOLCHAIN_ARCHIVE"
             echo "Expected release: $EXPECTED_KERNEL_RELEASE"
+            echo "KernelSU-Next: wodanesdag/KernelSU-Next susfs"
+            echo "SUSFS: enabled"
           } | tee "$GITHUB_WORKSPACE/build-source.txt"
 
       - name: Package AnyKernel3
