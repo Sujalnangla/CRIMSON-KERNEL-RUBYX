@@ -24,6 +24,7 @@ env:
   TOOLCHAIN_DIR: clang
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
   ANYKERNEL_BRANCH: eclipse-v2
+  EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-st19-Crimson-ruby
 
 jobs:
   build:
@@ -39,8 +40,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi git libelf-dev libfl-dev libncurses-dev libssl-dev \
+            bc bison build-essential ccache curl flex g++-multilib \
+            git libelf-dev libfl-dev libncurses-dev libssl-dev \
             lld llvm python3 rsync unzip zip
 
       - name: Configure ccache
@@ -53,7 +54,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: crimson-ruby-ccache-${{ runner.os }}-${{ hashFiles('localversion-*', 'arch/arm64/configs/ruby_defconfig') }}-${{ env.KERNEL_REF }}
+          key: crimson-ruby-ccache-${{ runner.os }}-${{ hashFiles('localversion-*') }}-${{ env.KERNEL_REF }}
           restore-keys: |
             crimson-ruby-ccache-${{ runner.os }}-
 
@@ -64,6 +65,7 @@ jobs:
           git -C kernel checkout --detach "$KERNEL_REF"
           echo "Kernel source commit: $(git -C kernel rev-parse HEAD)"
           test "$(git -C kernel rev-parse HEAD)" = "$KERNEL_REF"
+          cp "$GITHUB_WORKSPACE/localversion-crimson" kernel/localversion-crimson
 
       - name: Clone Android clang r563880
         run: |
@@ -111,6 +113,7 @@ jobs:
         working-directory: kernel
         run: |
           {
+            echo "Expected kernel release: $EXPECTED_KERNEL_RELEASE"
             echo "Repository: $KERNEL_REPO"
             echo "Base commit: $(git rev-parse HEAD)"
             echo "Patch: ioprio merge guard"
@@ -143,6 +146,9 @@ jobs:
         working-directory: kernel
         run: |
           test -s "$OUT_DIR/arch/arm64/boot/Image"
+          RELEASE="$(make -s O="$OUT_DIR" ARCH="$ARCH" kernelrelease)"
+          echo "Built kernel release: $RELEASE"
+          test "$RELEASE" = "$EXPECTED_KERNEL_RELEASE"
           if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
             IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
           elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
@@ -153,7 +159,7 @@ jobs:
           fi
           echo "Kernel image: $IMAGE"
           sha256sum "$IMAGE"
-          strings "$OUT_DIR/arch/arm64/boot/Image" | grep -m1 '^Linux version ' || true
+          strings "$OUT_DIR/arch/arm64/boot/Image" | grep -m1 "$EXPECTED_KERNEL_RELEASE"
           grep -E '^(CONFIG_LOCALVERSION|CONFIG_LOCALVERSION_AUTO)=' "$OUT_DIR/.config" || true
 
       - name: Prepare AnyKernel3 package
