@@ -5,7 +5,7 @@ run-name: Build Crimson Ruby Kernel #${{ github.run_number }}
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, ksu-susfs]
 
 permissions:
   contents: read
