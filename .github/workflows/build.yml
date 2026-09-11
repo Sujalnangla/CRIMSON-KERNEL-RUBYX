@@ -1,4 +1,4 @@
-name: Build Crimson Kernel
+name: Build Crimson Ruby Kernel
 
 on:
   workflow_dispatch:
@@ -6,14 +6,12 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  OUT_DIR: ${{ github.workspace }}/out
-  KERNEL_REPO: https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git
-  KERNEL_REF: 569bc23c41974d3506000e9851c1ca37aca33884
-  KERNEL_DEFCONFIG: ruby_defconfig
   ARCH: arm64
+  OUT_DIR: ${{ github.workspace }}/out
+  KERNEL_DEFCONFIG: ruby_defconfig
   TOOLCHAIN_REPO: https://gitlab.com/wodanesdag/android_prebuilts_clang_host_linux-x86_clang-r563880
   TOOLCHAIN_BRANCH: master
   TOOLCHAIN_DIR: clang
@@ -23,84 +21,112 @@ env:
 
 jobs:
   build:
+    name: Build kernel
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Crimson kernel tree
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install prerequisites
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            bc bison build-essential ccache flex git libelf-dev \
-            libssl-dev lz4 python3 rsync unzip wget xz-utils zstd
+            bc bison build-essential ccache flex git libelf-dev libfl-dev \
+            libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
+
+      - name: Validate source layout
+        run: |
+          set -eux
+          test -f Makefile
+          test -f arch/arm64/Makefile
+          test -f arch/arm64/configs/$KERNEL_DEFCONFIG
+          test -f localversion-cip
+          test -f localversion-st
+          test -f localversion-crimson
+          echo 'Kernel source: repository root'
+          echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
+          echo "Kernel version: $(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
+          git submodule status --recursive
 
       - name: Configure ccache
         run: |
           ccache --max-size=5G
           echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
 
-      - name: Prepare existing kernel tree
-        run: |
-          test -f kernel/Makefile
-          test -f kernel/arch/arm64/Makefile
-          test -f kernel/arch/arm64/configs/$KERNEL_DEFCONFIG
-          printf '%s\n' '-Crimson-ruby' > kernel/localversion-crimson
-          echo "Using checked-in Crimson kernel tree"
-          echo "Target upstream source revision: $KERNEL_REF"
-
       - name: Fetch Android Clang r563880
         run: |
           git clone --depth=1 --branch "$TOOLCHAIN_BRANCH" "$TOOLCHAIN_REPO" "$TOOLCHAIN_DIR"
           test -x "$TOOLCHAIN_DIR/bin/clang"
-
-      - name: Record build source
-        run: |
-          {
-            echo "Crimson repository: $GITHUB_REPOSITORY"
-            echo "Crimson commit: $GITHUB_SHA"
-            echo "Checked-in kernel tree: kernel/"
-            echo "Target upstream source: $KERNEL_REPO@$KERNEL_REF"
-            echo "Toolchain: $TOOLCHAIN_REPO@$TOOLCHAIN_BRANCH"
-            echo "Expected release: $EXPECTED_KERNEL_RELEASE"
-          } | tee "$GITHUB_WORKSPACE/build-source.txt"
+          test -x "$TOOLCHAIN_DIR/bin/ld.lld"
+          test -x "$TOOLCHAIN_DIR/bin/aarch64-linux-android-ld"
 
       - name: Configure kernel
-        working-directory: kernel
         run: |
-          mkdir -p "$OUT_DIR"
+          set -eux
+          rm -rf "$OUT_DIR"
           make O="$OUT_DIR" ARCH="$ARCH" "$KERNEL_DEFCONFIG"
+          # The source defconfig carries the vendor localversion; Crimson's
+          # committed localversion file is the single release-name suffix.
+          sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
+          make O="$OUT_DIR" ARCH="$ARCH" olddefconfig
+          grep '^CONFIG_LOCALVERSION=' "$OUT_DIR/.config"
 
       - name: Build kernel
-        working-directory: kernel
         run: |
+          set -euxo pipefail
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" \
             CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
             CROSS_COMPILE="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/arm-linux-androideabi-" \
             KCFLAGS="-Wno-error=implicit-function-declaration"
 
-      - name: Verify kernel identity
-        working-directory: kernel
+      - name: Verify kernel output
         run: |
+          set -eux
           release=$(make O="$OUT_DIR" ARCH="$ARCH" -s kernelrelease)
           echo "Built kernel release: $release"
           test "$release" = "$EXPECTED_KERNEL_RELEASE"
-          test -f "$OUT_DIR/arch/arm64/boot/Image.gz"
-          cp "$OUT_DIR/arch/arm64/boot/Image.gz" "$GITHUB_WORKSPACE/Image.gz"
-          if [ -f "$OUT_DIR/arch/arm64/boot/dts/mediatek/mt6877.dtb" ]; then
-            cat "$OUT_DIR/arch/arm64/boot/dts/mediatek/mt6877.dtb" >> "$GITHUB_WORKSPACE/Image.gz"
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
+            KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+          elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
+            KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz"
+          else
+            echo 'No Image.gz-dtb or Image.gz was produced' >&2
+            find "$OUT_DIR/arch/arm64/boot" -maxdepth 2 -type f -print >&2
+            exit 1
           fi
+          cp "$KERNEL_IMAGE" "$GITHUB_WORKSPACE/Image.gz"
+          echo "Kernel image: $KERNEL_IMAGE"
+          ls -lh "$GITHUB_WORKSPACE/Image.gz"
+          if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then
+            cp "$OUT_DIR/arch/arm64/boot/dtbo.img" "$GITHUB_WORKSPACE/dtbo.img"
+          fi
+
+      - name: Record build source
+        run: |
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Commit: $GITHUB_SHA"
+            echo "Kernel source: repository root"
+            echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
+            echo "Toolchain: $TOOLCHAIN_REPO@$TOOLCHAIN_BRANCH"
+            echo "Expected release: $EXPECTED_KERNEL_RELEASE"
+          } | tee "$GITHUB_WORKSPACE/build-source.txt"
 
       - name: Package AnyKernel3
         run: |
-          rm -rf AnyKernel3
+          set -eux
           git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
           cp Image.gz AnyKernel3/Image.gz
+          if [ -f dtbo.img ]; then
+            cp dtbo.img AnyKernel3/dtbo.img
+          fi
           cp build-source.txt AnyKernel3/build-source.txt
           cd AnyKernel3
           zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
@@ -111,5 +137,7 @@ jobs:
           name: Crimson-ruby-${{ github.run_number }}
           path: |
             Image.gz
+            dtbo.img
             build-source.txt
             Crimson-ruby-*.zip
+          if-no-files-found: error
