@@ -58,11 +58,17 @@ jobs:
           rm -rf KernelSU-Next
           git clone -b susfs --depth=1 https://github.com/wodanesdag/KernelSU-Next.git KernelSU-Next
           git -C KernelSU-Next remote set-head origin susfs
+          git -C KernelSU-Next rev-parse --verify HEAD
+          git -C KernelSU-Next branch --show-current
           bash KernelSU-Next/kernel/setup.sh susfs
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
           grep -q 'CONFIG_KSU_SUSFS' drivers/kernelsu/Kconfig
           grep -q 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+          test -f fs/susfs.c
+          test -f include/linux/susfs.h
+          echo "KernelSU-Next source: $(readlink -f drivers/kernelsu)"
           echo 'KernelSU-Next + SUSFS integration ready'
 
       - name: Configure ccache
@@ -102,6 +108,9 @@ jobs:
           echo 'CONFIG_LOCALVERSION_AUTO=n' >> "$OUT_DIR/.config"
           make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E '^CONFIG_(KSU|KSU_SUSFS|KSU_MANUAL_HOOK|LOCALVERSION(_AUTO)?)=' "$OUT_DIR/.config"
+          test "$(grep -c '^CONFIG_KSU=y$' "$OUT_DIR/.config")" -eq 1
+          test "$(grep -c '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config")" -eq 1
+          test "$(grep -c '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config")" -eq 1
 
       - name: Build kernel
         run: |
@@ -146,6 +155,7 @@ jobs:
             echo "Toolchain archive: $TOOLCHAIN_ARCHIVE"
             echo "Expected release: $EXPECTED_KERNEL_RELEASE"
             echo "KernelSU-Next: wodanesdag/KernelSU-Next susfs"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
             echo "SUSFS: enabled"
           } | tee "$GITHUB_WORKSPACE/build-source.txt"
 
