@@ -22,18 +22,6 @@ env:
   KBUILD_BUILD_USER: Shu
   KBUILD_BUILD_HOST: Crimson-Ruby
 
-env:
-  ARCH: arm64
-  OUT_DIR: ${{ github.workspace }}/out
-  KERNEL_DEFCONFIG: ruby_defconfig
-  TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
-  TOOLCHAIN_DIR: clang
-  ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
-  ANYKERNEL_BRANCH: eclipse-v2
-  EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-Crimson-ruby-st19
-  KBUILD_BUILD_USER: Shu
-  KBUILD_BUILD_HOST: Crimson-Ruby
-
 jobs:
   build:
     name: Build kernel
