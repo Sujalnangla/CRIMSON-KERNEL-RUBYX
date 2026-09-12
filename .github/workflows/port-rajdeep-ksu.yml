@@ -1,0 +1,63 @@
+name: Port Rajdeep KernelSU Manual Hooks
+
+on:
+  push:
+    branches: [ksu-susfs]
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Crimson
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ksu-susfs
+
+      - name: Port exact Rajdeep KernelSU/SUSFS commit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RAJDEEP_REPO="https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git"
+          RAJDEEP_PARENT="bff45a69404e25fd5a1904ffe11ab8c1e6ce1604"
+          RAJDEEP_COMMIT="d07fe787f959464a653596f23b5e88c4510644"
+
+          git clone --no-checkout --filter=blob:none "$RAJDEEP_REPO" /tmp/rajdeep
+          git -C /tmp/rajdeep fetch --depth=2 origin "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT"
+
+          echo "Rajdeep changed files:"
+          git -C /tmp/rajdeep diff --name-only "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT"
+
+          if git -C /tmp/rajdeep diff --name-only "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT" | grep -E '^block/'; then
+            echo "ERROR: Rajdeep integration commit unexpectedly changes block/; refusing to touch ioprio/block code."
+            exit 1
+          fi
+
+          git -C /tmp/rajdeep diff "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT" \
+            -- . \
+            ':(exclude).github/workflows/build.yml' \
+            ':(exclude).github/workflows/release.yml' \
+            > /tmp/rajdeep-ksu.patch
+
+          test -s /tmp/rajdeep-ksu.patch
+
+          echo "Applying Rajdeep's exact source/config integration patch..."
+          git apply --whitespace=nowarn /tmp/rajdeep-ksu.patch
+
+          echo "Applied changes:"
+          git diff --stat
+          git diff --check
+
+          git config user.name "SHU"
+          git config user.email "nanglasujal431@gmail.com"
+
+          # Remove this one-shot migration workflow from the resulting commit.
+          rm -f .github/workflows/port-rajdeep-ksu.yml
+
+          git add -A
+          git commit -m "Port Rajdeep KernelSU manual hooks and SUSFS integration"
+          git push origin HEAD:ksu-susfs
