@@ -2,6 +2,8 @@ name: Apply Minimal KernelSU Fix
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ksu-susfs]
 
 permissions:
   contents: write
@@ -20,25 +22,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           python3 - <<'PY'
           from pathlib import Path
-
-          # Minimal fix only: KernelSU execve manual hook + reboot supercall hook.
-          # Do not import the full Rajdeep VFS/SUSFS patch.
 
           p = Path("fs/exec.c")
           s = p.read_text()
           anchor = '''/*\n * sys_execve() executes a new program.\n */\nstatic int __do_execve_file'''
-          replacement = '''/*\n * sys_execve() executes a new program.\n */\n#ifdef CONFIG_KSU\nextern bool ksu_execveat_hook __read_mostly;\nextern bool ksu_su_compat_enabled __read_mostly;\nextern bool __ksu_is_allow_uid_for_current(uid_t uid);\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,\n                                void *envp, int *flags);\nextern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,\n                                        void *envp, int *flags);\n#endif\n\nstatic int __do_execve_file'''
-          if anchor not in s:
-              raise SystemExit("exec.c anchor not found")
-          if "ksu_handle_execveat" in s:
-              raise SystemExit("exec.c KSU hook already present; refusing duplicate patch")
+          replacement = '''/*\n * sys_execve() executes a new program.\n */\n#ifdef CONFIG_KSU\nextern bool ksu_execveat_hook __read_mostly;\nextern bool ksu_su_compat_enabled __read_mostly;\nextern bool __ksu_is_allow_uid_for_current(uid_t uid);\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,\n                               void *envp, int *flags);\nextern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,\n                                        void *envp, int *flags);\n#endif\n\nstatic int __do_execve_file'''
+          if anchor not in s or "ksu_handle_execveat" in s:
+              raise SystemExit("exec.c is not in expected clean state")
           s = s.replace(anchor, replacement, 1)
-
           anchor = '''\tif (IS_ERR(filename))\n\t\treturn PTR_ERR(filename);\n\n\t/*\n\t * We move the actual failure'''
-          replacement = '''\tif (IS_ERR(filename))\n\t\treturn PTR_ERR(filename);\n\n#ifdef CONFIG_KSU\n\tif (!ksu_su_compat_enabled)\n\t\tgoto orig_flow;\n\n\tif (unlikely(ksu_execveat_hook)) {\n\t\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n\t} else if (__ksu_is_allow_uid_for_current(current_uid().val)) {\n\t\tksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);\n\t}\n\norig_flow:\n#endif\n\n\t/*\n\t * We move the actual failure'''
+          replacement = '''\tif (IS_ERR(filename))\n\t\treturn PTR_ERR(filename);\n\n#ifdef CONFIG_KSU\n\tif (!ksu_su_compat_enabled)\n\t\tgoto orig_flow;\n\n\tif (unlikely(ksu_execveat_hook))\n\t\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n\telse if (__ksu_is_allow_uid_for_current(current_uid().val))\n\t\tksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);\n\norig_flow:\n#endif\n\n\t/*\n\t * We move the actual failure'''
           if anchor not in s:
               raise SystemExit("exec.c execve anchor not found")
           s = s.replace(anchor, replacement, 1)
@@ -49,17 +44,16 @@ jobs:
           anchor = '''\t/* We only trust the superuser with rebooting the system. */\n\tif (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))\n\t\treturn -EPERM;\n\n\t#ifdef CONFIG_KSU\n\tif (magic1 == KSU_INSTALL_MAGIC1)\n\t\treturn ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n\t#endif'''
           replacement = '''#ifdef CONFIG_KSU\n\tif (magic1 == KSU_INSTALL_MAGIC1)\n\t\treturn ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n\n\t/* We only trust the superuser with rebooting the system. */\n\tif (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))\n\t\treturn -EPERM;'''
           if anchor not in s:
-              raise SystemExit("reboot.c anchor not found")
+              raise SystemExit("reboot.c is not in expected clean state")
           s = s.replace(anchor, replacement, 1)
           p.write_text(s)
           PY
 
           git diff --check
           changed="$(git diff --name-only)"
-          printf 'Changed files:\n%s\n' "$changed"
           test "$(printf '%s\n' "$changed" | grep -c '^')" -eq 2
           printf '%s\n' "$changed" | grep -qx 'fs/exec.c'
-          printf '%s\n' "$changed" | grep -qx 'kernel/reboot.c' || true
+          printf '%s\n' "$changed" | grep -qx 'kernel/reboot.c'
           if printf '%s\n' "$changed" | grep -E '^(block/|.*ioprio)'; then
             echo 'ERROR: block/ioprio touched; aborting.'
             exit 1
@@ -69,4 +63,6 @@ jobs:
           git config user.email 'nanglasujal431@gmail.com'
           git add fs/exec.c kernel/reboot.c
           git commit -m 'Fix KernelSU manual exec and reboot hooks'
+          git rm -f .github/workflows/apply-minimal-ksu-fix.yml .github/workflows/port-rajdeep-ksu-v4.yml 2>/dev/null || true
+          git commit -m 'Remove temporary KernelSU migration workflows' || true
           git push origin HEAD:ksu-susfs
