@@ -41,10 +41,18 @@ struct uts_namespace init_uts_ns = {
 };
 EXPORT_SYMBOL_GPL(init_uts_ns);
 
-/* FIXED STRINGS! Don't touch! */
+/* Crimson Ruby kernel banner. */
 const char linux_banner[] =
 	"Linux version " UTS_RELEASE " (" LINUX_COMPILE_BY "@"
-	LINUX_COMPILE_HOST ") (" LINUX_COMPILER ") " UTS_VERSION "\n";
+	LINUX_COMPILE_HOST ") (" LINUX_COMPILER ") " UTS_VERSION "\n"
+	"\n"
+	"   ____        _                          ____        _     _       \n"
+	"  / ___|_ __ _| |_ ___ _ __ ___   ___  |  _ \\ _   _| |__ | |_   \n"
+	" | |   | '__| | __/ _ \\ '_ ` _ \\ / _ \\ | |_) | | | | '_ \\| __|  \n"
+	" | |___| |  | | ||  __/ | | | | | (_) ||  _ <| |_| | |_) | |_   \n"
+	"  \\____|_|  |_|\\__\\___|_| |_| |_|\\___/ |_| \\_\\\\__,_|_.__/ \\__|  \n"
+	"\n"
+	"                 Crimson Ruby Kernel - By Shu\n";
 
 const char *linux_banner_ptr = linux_banner;
 EXPORT_SYMBOL_GPL(linux_banner_ptr);
