@@ -2,6 +2,8 @@ name: Port Rajdeep KernelSU Manual Hooks v4
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ksu-susfs]
 
 permissions:
   contents: write
