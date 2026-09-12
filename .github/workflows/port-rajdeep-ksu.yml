@@ -24,7 +24,7 @@ jobs:
 
           RAJDEEP_REPO="https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git"
           RAJDEEP_PARENT="bff45a69404e25fd5a1904ffe11ab8c1e6ce1604"
-          RAJDEEP_COMMIT="d07fe787f959464a653596f23b5e88c4510644"
+          RAJDEEP_COMMIT="d07fe787f959464a653596f3a23b5e88c4510644"
 
           git clone --no-checkout --filter=blob:none "$RAJDEEP_REPO" /tmp/rajdeep
           git -C /tmp/rajdeep fetch --depth=2 origin "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT"
@@ -55,7 +55,6 @@ jobs:
           git config user.name "SHU"
           git config user.email "nanglasujal431@gmail.com"
 
-          # Remove this one-shot migration workflow from the resulting commit.
           rm -f .github/workflows/port-rajdeep-ksu.yml
 
           git add -A
