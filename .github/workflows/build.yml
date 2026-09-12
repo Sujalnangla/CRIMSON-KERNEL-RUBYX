@@ -77,77 +77,15 @@ jobs:
           grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
           grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
 
-          # KernelSU-Next SUSFS exposes the AVC-log-spoofing command, while
-          # this 4.19 tree's avc.c does not yet contain the matching SUSFS
-          # implementation. Apply the exact integration used by the
-          # authoritative Ruby kernel source before compilation.
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('security/selinux/avc.c')
-          s = p.read_text()
-
-          old_defs = '''#ifdef CONFIG_SECURITY_SELINUX_AVC_STATS
-          DEFINE_PER_CPU(struct avc_cache_stats, avc_cache_stats) = { 0 };
-          #endif
-          '''
-          new_defs = '''#ifdef CONFIG_SECURITY_SELINUX_AVC_STATS
-          DEFINE_PER_CPU(struct avc_cache_stats, avc_cache_stats) = { 0 };
-          #endif
-
-          #ifdef CONFIG_KSU_SUSFS
-          extern u32 susfs_ksu_sid;
-          extern u32 susfs_priv_app_sid;
-          bool susfs_is_avc_log_spoofing_enabled = false;
-          #endif
-          '''
-          old_defs = old_defs.replace('          ', '')
-          new_defs = new_defs.replace('          ', '')
-          if old_defs not in s:
-              raise SystemExit('SUSFS AVC definition anchor not found')
-          if 'bool susfs_is_avc_log_spoofing_enabled = false;' in s:
-              raise SystemExit('SUSFS AVC definition already present')
-          s = s.replace(old_defs, new_defs, 1)
-
-          old_query = '''\trc = security_sid_to_context(state, tsid, &scontext, &scontext_len);
-          if (rc)
-          \taudit_log_format(ab, " tsid=%d", tsid);
-          else {
-          \taudit_log_format(ab, " tcontext=%s", scontext);
-          \tkfree(scontext);
-          }
-          '''.replace('          ', '')
-          new_query = '''\trc = security_sid_to_context(state, tsid, &scontext, &scontext_len);
-          #ifdef CONFIG_KSU_SUSFS
-          if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled)) {
-          \tif (rc)
-          \t\taudit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
-          \telse
-          \t\taudit_log_format(ab, " tcontext=%s", "u:r:priv_app:s0:c512,c768");
-          \tgoto bypass_orig_flow;
-          }
-          #endif
-
-          if (rc)
-          \taudit_log_format(ab, " tsid=%d", tsid);
-          else {
-          \taudit_log_format(ab, " tcontext=%s", scontext);
-          \tkfree(scontext);
-          }
-
-          #ifdef CONFIG_KSU_SUSFS
-          bypass_orig_flow:
-          #endif
-          '''.replace('          ', '')
-          if old_query not in s:
-              raise SystemExit('SUSFS AVC query anchor not found')
-          s = s.replace(old_query, new_query, 1)
-
-          p.write_text(s)
-          PY
-
+          # KernelSU-Next SUSFS expects the matching AVC-log-spoofing state
+          # variable and audit-query handling in security/selinux/avc.c.
+          # Keep this as a source check: the integration belongs in the
+          # kernel tree, not as a brittle text rewrite during CI.
           grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
-          grep -q 'susfs_is_avc_log_spoofing_enabled' security/selinux/avc.c
+          grep -q 'if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled))' security/selinux/avc.c
+          grep -q 'audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);' security/selinux/avc.c
+          grep -q '"u:r:priv_app:s0:c512,c768"' security/selinux/avc.c
+          grep -q '^bypass_orig_flow:' security/selinux/avc.c
           echo "KernelSU-Next source: $(readlink -f drivers/kernelsu)"
           echo 'KernelSU-Next + SUSFS integration ready'
 
