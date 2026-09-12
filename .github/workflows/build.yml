@@ -28,7 +28,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
 
       - name: Install build dependencies
@@ -50,7 +50,6 @@ jobs:
           echo 'Kernel source: repository root'
           echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
           echo "Kernel version: $(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
-          git submodule status --recursive
 
       - name: Integrate KernelSU-Next SUSFS
         run: |
@@ -58,16 +57,24 @@ jobs:
           rm -rf KernelSU-Next
           git clone -b susfs --depth=1 https://github.com/wodanesdag/KernelSU-Next.git KernelSU-Next
           git -C KernelSU-Next remote set-head origin susfs
-          git -C KernelSU-Next rev-parse --verify HEAD
-          git -C KernelSU-Next branch --show-current
+          KSU_COMMIT="$(git -C KernelSU-Next rev-parse --verify HEAD)"
+          KSU_BRANCH="$(git -C KernelSU-Next branch --show-current)"
+          echo "KernelSU-Next commit: $KSU_COMMIT"
+          echo "KernelSU-Next branch: $KSU_BRANCH"
+          test "$KSU_BRANCH" = susfs
+
           bash KernelSU-Next/kernel/setup.sh susfs
+
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
           test -f drivers/kernelsu/Makefile
-          grep -q 'CONFIG_KSU_SUSFS' drivers/kernelsu/Kconfig
-          grep -q 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
           test -f fs/susfs.c
           test -f include/linux/susfs.h
+          grep -q '^config KSU$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_SUSFS$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
+
           echo "KernelSU-Next source: $(readlink -f drivers/kernelsu)"
           echo 'KernelSU-Next + SUSFS integration ready'
 
