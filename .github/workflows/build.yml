@@ -77,9 +77,6 @@ jobs:
           grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
           grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
 
-          # Apply the exact SUSFS AVC integration used by the authoritative
-          # Ruby kernel source. The script is structural and fails closed if
-          # the 4.19 AVC source shape is not what it expects.
           python3 scripts/apply-susfs-avc-fix.py
 
           grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
@@ -174,6 +171,7 @@ jobs:
             echo "Toolchain archive: $TOOLCHAIN_ARCHIVE"
             echo "Expected release: $EXPECTED_KERNEL_RELEASE"
             echo "Kernel banner: Crimson Ruby Kernel - By Shu"
+            echo "AnyKernel banner: Crimson Kernel - By Shu"
             echo "Kernel build user: $KBUILD_BUILD_USER"
             echo "Kernel build host: $KBUILD_BUILD_HOST"
             echo "KernelSU-Next: wodanesdag/KernelSU-Next susfs"
@@ -190,6 +188,33 @@ jobs:
             cp dtbo.img AnyKernel3/dtbo.img
           fi
           cp build-source.txt AnyKernel3/build-source.txt
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ak = Path('AnyKernel3')
+          script = ak / 'anykernel.sh'
+          text = script.read_text()
+          old = 'kernel.string=Eclipse Kernel'
+          new = 'kernel.string=Crimson Kernel - By Shu'
+          if old not in text:
+              raise SystemExit('Expected Eclipse AnyKernel branding was not found')
+          script.write_text(text.replace(old, new, 1))
+
+          banner = '''==================================================
+                CRIMSON KERNEL
+                    BY SHU
+==================================================
+        Crimson Ruby | MediaTek MT6877
+              Redmi Note 12 Pro/Pro+
+==================================================
+'''
+          (ak / 'banner').write_text(banner)
+          PY
+
+          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
+          grep -q 'CRIMSON KERNEL' AnyKernel3/banner
+          grep -q 'BY SHU' AnyKernel3/banner
           cd AnyKernel3
           zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
 
