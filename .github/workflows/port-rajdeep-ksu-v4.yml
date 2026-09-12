@@ -1,0 +1,90 @@
+name: Port Rajdeep KernelSU Manual Hooks v4
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Crimson
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ksu-susfs
+
+      - name: Port Rajdeep integration via GitHub API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SHA="d07fe787f959464a653596f3a23b5e88c4510644"
+          API="https://api.github.com/repos/rajdeep-3305/kernel_xiaomi_mt6877"
+          RAW="https://raw.githubusercontent.com/rajdeep-3305/kernel_xiaomi_mt6877/$SHA"
+
+          curl -fsSL "$API/commits/$SHA?per_page=100" -o /tmp/commit.json
+          test "$(jq -r .sha /tmp/commit.json)" = "$SHA"
+
+          jq -r '.files[].filename' /tmp/commit.json > /tmp/files.txt
+
+          if grep -E '^block/' /tmp/files.txt; then
+            echo "ERROR: Rajdeep integration touches block/; refusing to touch scheduler/ioprio code."
+            exit 1
+          fi
+
+          grep -vE '^\.github/workflows/(build|release)\.yml$' /tmp/files.txt > /tmp/port-files.txt
+          test -s /tmp/port-files.txt
+
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            status="$(jq -r --arg p "$path" '.files[] | select(.filename==$p) | .status' /tmp/commit.json)"
+            case "$status" in
+              removed|renamed) continue ;;
+            esac
+
+            mode="$(jq -r --arg p "$path" '.files[] | select(.filename==$p) | .mode // "100644"' /tmp/commit.json)"
+            if [ "$mode" = "160000" ]; then
+              echo "SKIP gitlink $path"
+              continue
+            fi
+
+            target="/tmp/rajdeep-file"
+            curl -fsSL "$RAW/$path" -o "$target"
+            mkdir -p "$(dirname "$path")"
+
+            case "$mode" in
+              120000)
+                target_link="$(cat "$target")"
+                rm -f "$path"
+                ln -s "$target_link" "$path"
+                ;;
+              *)
+                cp "$target" "$path"
+                ;;
+            esac
+            echo "PORT $path"
+          done < /tmp/port-files.txt
+
+          modified="$(git diff --name-only)"
+          printf '%s\n' "$modified"
+
+          if printf '%s\n' "$modified" | grep -E '^(block/|.*ioprio)'; then
+            echo "ERROR: block/ioprio code was modified; refusing to commit."
+            exit 1
+          fi
+
+          git diff --check
+          git config user.name "SHU"
+          git config user.email "nanglasujal431@gmail.com"
+
+          rm -f .github/workflows/port-rajdeep-ksu.yml \
+                .github/workflows/port-rajdeep-ksu-v3.yml \
+                .github/workflows/port-rajdeep-ksu-v4.yml \
+                PORT_V3_MARKER
+
+          git add -A
+          git commit -m "Port Rajdeep KernelSU manual hooks and SUSFS integration"
+          git push origin HEAD:ksu-susfs
