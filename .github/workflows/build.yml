@@ -77,10 +77,11 @@ jobs:
           grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
           grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
 
-          # KernelSU-Next SUSFS expects the matching AVC-log-spoofing state
-          # variable and audit-query handling in security/selinux/avc.c.
-          # Keep this as a source check: the integration belongs in the
-          # kernel tree, not as a brittle text rewrite during CI.
+          # Apply the exact SUSFS AVC integration used by the authoritative
+          # Ruby kernel source. The script is structural and fails closed if
+          # the 4.19 AVC source shape is not what it expects.
+          python3 scripts/apply-susfs-avc-fix.py
+
           grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
           grep -q 'if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled))' security/selinux/avc.c
           grep -q 'audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);' security/selinux/avc.c
