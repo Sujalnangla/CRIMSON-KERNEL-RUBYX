@@ -1,0 +1,72 @@
+name: Port Rajdeep KernelSU Manual Hooks v3
+
+on:
+  push:
+    branches: [ksu-susfs]
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Crimson
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ksu-susfs
+
+      - name: Port Rajdeep integration snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RAJDEEP_REPO="https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git"
+          RAJDEEP_PARENT="bff45a69404e25fd5a1904ffe11ab8c1e6ce1604"
+          RAJDEEP_COMMIT="d07fe787f959464a653596f3a23b5e88c4510644"
+
+          git clone --no-checkout --filter=blob:none "$RAJDEEP_REPO" /tmp/rajdeep
+          git -C /tmp/rajdeep fetch --depth=2 origin "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT"
+
+          files="$(git -C /tmp/rajdeep diff --name-only "$RAJDEEP_PARENT" "$RAJDEEP_COMMIT")"
+          printf '%s\n' "$files"
+
+          if printf '%s\n' "$files" | grep -E '^block/'; then
+            echo "ERROR: Rajdeep integration touches block/; refusing to touch scheduler/ioprio code."
+            exit 1
+          fi
+
+          printf '%s\n' "$files" | grep -vE '^\.github/workflows/(build|release)\.yml$' > /tmp/rajdeep-files.txt
+          test -s /tmp/rajdeep-files.txt
+
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            target_sha="$(git -C /tmp/rajdeep rev-parse "$RAJDEEP_COMMIT:$path" 2>/dev/null || true)"
+            [ -n "$target_sha" ] || continue
+            current_sha="$(git hash-object "$path" 2>/dev/null || true)"
+            if [ "$current_sha" = "$target_sha" ]; then
+              echo "UNCHANGED $path"
+              continue
+            fi
+            echo "PORT $path"
+            mkdir -p "$(dirname "$path")"
+            git -C /tmp/rajdeep show "$RAJDEEP_COMMIT:$path" > "$path"
+          done < /tmp/rajdeep-files.txt
+
+          echo "Final modified paths:"
+          modified="$(git diff --name-only)"
+          printf '%s\n' "$modified"
+
+          if printf '%s\n' "$modified" | grep -E '^(block/|.*ioprio)'; then
+            echo "ERROR: block/ioprio code was modified; refusing to commit."
+            exit 1
+          fi
+
+          git diff --check
+          git config user.name "SHU"
+          git config user.email "nanglasujal431@gmail.com"
+          rm -f .github/workflows/port-rajdeep-ksu.yml .github/workflows/port-rajdeep-ksu-v3.yml
+          git add -A
+          git commit -m "Port Rajdeep KernelSU manual hooks and SUSFS integration"
+          git push origin HEAD:ksu-susfs
