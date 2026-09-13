@@ -94,7 +94,7 @@ def patch_open(target):
     pos = text.find(marker, start)
     if pos < 0:
         raise SystemExit("SUSFS integration: do_sys_open filp_open anchor not found")
-    if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:]):
+    if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:]:
         hook = (
             "#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n"
             "\t\tif (f && !IS_ERR(f) &&\n"
