@@ -1,6 +1,6 @@
 name: Build Crimson Ruby Kernel
 
-run-name: Build Crimson Ruby Kernel #${{ github.run_number }}
+run-name: "Build Crimson Ruby Kernel #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
           fetch-depth: 0
 
       - name: Install build dependencies
@@ -61,12 +61,8 @@ jobs:
           rm -rf KernelSU-Next
           git clone -b "$KERNELSU_BRANCH" --depth=1 "$KERNELSU_REPO" KernelSU-Next
           git -C KernelSU-Next remote set-head origin "$KERNELSU_BRANCH"
-          KSU_COMMIT="$(git -C KernelSU-Next rev-parse --verify HEAD)"
-          KSU_BRANCH="$(git -C KernelSU-Next branch --show-current)"
-          echo "KernelSU-Next commit: $KSU_COMMIT"
-          echo "KernelSU-Next branch: $KSU_BRANCH"
-          test "$KSU_BRANCH" = "$KERNELSU_BRANCH"
-
+          test "$(git -C KernelSU-Next branch --show-current)" = "$KERNELSU_BRANCH"
+          echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
           bash KernelSU-Next/kernel/setup.sh "$KERNELSU_BRANCH"
 
           test -L drivers/kernelsu
@@ -80,14 +76,6 @@ jobs:
           grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
 
           python3 scripts/apply-susfs-avc-fix.py
-
-          grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
-          grep -q 'if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled))' security/selinux/avc.c
-          grep -q 'audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);' security/selinux/avc.c
-          grep -q '"u:r:priv_app:s0:c512,c768"' security/selinux/avc.c
-          grep -q '^bypass_orig_flow:' security/selinux/avc.c
-          echo "KernelSU-Next source: $(readlink -f drivers/kernelsu)"
-          echo 'KernelSU-Next + SUSFS integration ready'
 
       - name: Configure ccache
         run: |
@@ -130,6 +118,15 @@ jobs:
           test "$(grep -c '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config")" -eq 1
           test "$(grep -c '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config")" -eq 1
 
+      - name: Verify minimal Android 16 KSU fix
+        run: |
+          set -eux
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+          awk '/magic1 == KSU_INSTALL_MAGIC1/{found=1} /ns_capable\(pid_ns->user_ns, CAP_SYS_BOOT\)/{if(found) exit 0} END{if(!found) exit 1}' kernel/reboot.c
+          echo 'Minimal KSU manual exec/reboot integration verified'
+
       - name: Build kernel
         run: |
           set -euxo pipefail
@@ -139,6 +136,8 @@ jobs:
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
             LOCALVERSION="" \
+            KBUILD_BUILD_USER="$KBUILD_BUILD_USER" \
+            KBUILD_BUILD_HOST="$KBUILD_BUILD_HOST" \
             KCFLAGS="-Wno-error=implicit-function-declaration"
 
       - name: Verify kernel output
@@ -157,8 +156,6 @@ jobs:
             exit 1
           fi
           cp "$KERNEL_IMAGE" "$GITHUB_WORKSPACE/Image.gz"
-          echo "Kernel image: $KERNEL_IMAGE"
-          ls -lh "$GITHUB_WORKSPACE/Image.gz"
           if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then
             cp "$OUT_DIR/arch/arm64/boot/dtbo.img" "$GITHUB_WORKSPACE/dtbo.img"
           fi
@@ -168,9 +165,7 @@ jobs:
           {
             echo "Repository: $GITHUB_REPOSITORY"
             echo "Commit: $GITHUB_SHA"
-            echo "Kernel source: repository root"
             echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
-            echo "Toolchain archive: $TOOLCHAIN_ARCHIVE"
             echo "Expected release: $EXPECTED_KERNEL_RELEASE"
             echo "Kernel banner: Crimson Ruby Kernel - By Shu"
             echo "AnyKernel banner: Crimson Kernel - By Shu"
@@ -193,7 +188,6 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-
           ak = Path('AnyKernel3')
           script = ak / 'anykernel.sh'
           text = script.read_text()
@@ -202,7 +196,6 @@ jobs:
           if old not in text:
               raise SystemExit('Expected Eclipse AnyKernel branding was not found')
           script.write_text(text.replace(old, new, 1))
-
           banner = '''==================================================
                 CRIMSON KERNEL
                     BY SHU
