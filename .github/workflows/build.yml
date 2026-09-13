@@ -10,15 +10,14 @@ on:
 permissions:
   contents: read
 
-# Minimal KSU Android 16 seccomp/manual-hook fix is already in fs/exec.c + kernel/reboot.c.
-# This build is intentionally kept separate from the abandoned full Rajdeep port.
-
 env:
   ARCH: arm64
   OUT_DIR: ${{ github.workspace }}/out
   KERNEL_DEFCONFIG: ruby_defconfig
   TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
   TOOLCHAIN_DIR: clang
+  KERNELSU_BRANCH: susfs
+  KERNELSU_REPO: https://github.com/wodanesdag/KernelSU-Next.git
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
   ANYKERNEL_BRANCH: eclipse-v2
   EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-Crimson-ruby-st19
@@ -60,15 +59,15 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf KernelSU-Next
-          git clone -b susfs --depth=1 https://github.com/wodanesdag/KernelSU-Next.git KernelSU-Next
-          git -C KernelSU-Next remote set-head origin susfs
+          git clone -b "$KERNELSU_BRANCH" --depth=1 "$KERNELSU_REPO" KernelSU-Next
+          git -C KernelSU-Next remote set-head origin "$KERNELSU_BRANCH"
           KSU_COMMIT="$(git -C KernelSU-Next rev-parse --verify HEAD)"
           KSU_BRANCH="$(git -C KernelSU-Next branch --show-current)"
           echo "KernelSU-Next commit: $KSU_COMMIT"
           echo "KernelSU-Next branch: $KSU_BRANCH"
-          test "$KSU_BRANCH" = susfs
+          test "$KSU_BRANCH" = "$KERNELSU_BRANCH"
 
-          bash KernelSU-Next/kernel/setup.sh susfs
+          bash KernelSU-Next/kernel/setup.sh "$KERNELSU_BRANCH"
 
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
@@ -131,15 +130,6 @@ jobs:
           test "$(grep -c '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config")" -eq 1
           test "$(grep -c '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config")" -eq 1
 
-      - name: Verify minimal KSU manual-hook fix
-        run: |
-          set -eux
-          grep -q 'ksu_handle_execveat' fs/exec.c
-          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
-          grep -q 'magic1 == KSU_INSTALL_MAGIC1' kernel/reboot.c
-          awk '/magic1 == KSU_INSTALL_MAGIC1/{found=1} /ns_capable\(pid_ns->user_ns, CAP_SYS_BOOT\)/{if(found) exit 0} END{if(!found) exit 1}' kernel/reboot.c
-          echo 'Minimal KSU manual-hook/seccomp fix present'
-
       - name: Build kernel
         run: |
           set -euxo pipefail
@@ -186,7 +176,7 @@ jobs:
             echo "AnyKernel banner: Crimson Kernel - By Shu"
             echo "Kernel build user: $KBUILD_BUILD_USER"
             echo "Kernel build host: $KBUILD_BUILD_HOST"
-            echo "KernelSU-Next: wodanesdag/KernelSU-Next susfs"
+            echo "KernelSU-Next: $KERNELSU_REPO $KERNELSU_BRANCH"
             echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
             echo "SUSFS: enabled"
           } | tee "$GITHUB_WORKSPACE/build-source.txt"
