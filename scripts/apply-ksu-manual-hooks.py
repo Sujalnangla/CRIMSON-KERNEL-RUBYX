@@ -69,8 +69,8 @@ replace_once(
 )
 replace_once(
     "drivers/input/input.c",
-    '\tunsigned long flags;\n\n\tif (is_event_supported(type, dev->evbit, EV_MAX)) {',
-    '\tunsigned long flags;\n\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n#endif\n\n\tif (is_event_supported(type, dev->evbit, EV_MAX)) {',
+    'void input_event(struct input_dev *dev,\n\t\t unsigned int type, unsigned int code, int value)\n{\n\tunsigned long flags;\n\n\tif (is_event_supported(type, dev->evbit, EV_MAX)) {',
+    'void input_event(struct input_dev *dev,\n\t\t unsigned int type, unsigned int code, int value)\n{\n\tunsigned long flags;\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n#endif\n\n\tif (is_event_supported(type, dev->evbit, EV_MAX)) {',
     "input hook",
 )
 
