@@ -5,6 +5,12 @@ The Crimson tree already contains the SUSFS core (fs/susfs.c + headers). This
 script ports only the missing integration hunks from the pinned Rajdeep
 KernelSU/SUSFS integration commit; it deliberately does not replace SUSFS
 core files or device-specific files wholesale.
+
+Crimson has diverged from Rajdeep in several older 4.19 VFS files. The
+normal Git patch therefore cannot always match its surrounding context. We
+first try the normal patch and, for those already-diverged files, retry with
+zero-context hunks. Zero-context mode is still exact about the lines being
+added/removed; it only removes unrelated surrounding context from the match.
 """
 from pathlib import Path
 import subprocess
@@ -35,6 +41,13 @@ def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True)
 
 
+def check_patch(patch_path, cwd, *extra):
+    return subprocess.run(
+        ["git", "apply", "--check", "--whitespace=nowarn", *extra, str(patch_path)],
+        cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+
+
 def main():
     defconfig = Path("arch/arm64/configs/ruby_defconfig")
     if not defconfig.exists():
@@ -48,7 +61,7 @@ def main():
     elif "# CONFIG_KPROBES is not set" in cfg:
         print("defconfig: CONFIG_KPROBES already disabled")
     else:
-        raise SystemExit("defconfig: CONFIG_KPROBES setting not found")
+        raise SystemExit("defconfig: KPROBES setting not found")
 
     with tempfile.TemporaryDirectory(prefix="crimson-susfs-") as td:
         repo = Path(td) / "rajdeep"
@@ -66,15 +79,31 @@ def main():
         patch_path = repo / "susfs-integration.patch"
         patch_path.write_text(patch)
 
-        check = subprocess.run(
-            ["git", "apply", "--check", "--whitespace=nowarn", str(patch_path)],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        )
-        if check.returncode != 0:
+        # First use the normal patch, preserving as much context checking as
+        # possible. Crimson's namei/open/proc-base files are known to have
+        # diverged from Rajdeep's parent, so a zero-context retry is provided
+        # for those exact additions/removals.
+        check = check_patch(patch_path, repo)
+        if check.returncode == 0:
+            run("git", "apply", "--whitespace=nowarn", str(patch_path))
+            print("SUSFS integration: normal patch applied")
+        else:
             print(check.stdout, end="")
-            raise SystemExit("SUSFS integration: Rajdeep VFS/proc patch does not apply cleanly")
-
-        run("git", "apply", "--whitespace=nowarn", str(patch_path))
+            zero_patch = repo / "susfs-integration-zero-context.patch"
+            zero = subprocess.run(
+                ["git", "diff", "-U0", RAJDEEP_PARENT, RAJDEEP_COMMIT, "--", *FILES],
+                cwd=repo, check=True, text=True, stdout=subprocess.PIPE,
+            ).stdout
+            zero_patch.write_text(zero)
+            zero_check = check_patch(zero_patch, repo, "--unidiff-zero")
+            if zero_check.returncode != 0:
+                print(zero_check.stdout, end="")
+                raise SystemExit(
+                    "SUSFS integration: normal and zero-context patches both fail; "
+                    "manual integration is required for a remaining Crimson divergence"
+                )
+            run("git", "apply", "--unidiff-zero", "--whitespace=nowarn", str(zero_patch))
+            print("SUSFS integration: zero-context patch applied for Crimson-diverged VFS files")
 
     print("SUSFS v2.2.0 VFS/proc integration applied")
 
