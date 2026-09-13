@@ -1,53 +1,32 @@
 #!/usr/bin/env python3
-"""Apply the SUSFS AVC log-spoofing integration to the 4.19 SELinux AVC."""
+"""Apply only the SUSFS AVC log-spoofing hook used by the Ruby kernel source."""
 from pathlib import Path
-import re
 
 path = Path("security/selinux/avc.c")
 s = path.read_text()
 
-# This is the exact small integration used by the authoritative Ruby kernel
-# source. Keep the transformation structural and fail closed if the source
-# shape changes, rather than silently applying a partial patch.
-defs = """#ifdef CONFIG_KSU_SUSFS
-extern u32 susfs_ksu_sid;
-extern u32 susfs_priv_app_sid;
-bool susfs_is_avc_log_spoofing_enabled = false;
-#endif
-"""
-
+# The Crimson source already contains the SUSFS driver. This script adds only
+# the small AVC integration from the authoritative Ruby SUSFS commit.
 if "bool susfs_is_avc_log_spoofing_enabled = false;" not in s:
-    pattern = r"(#ifdef CONFIG_SECURITY_SELINUX_AVC_STATS\nDEFINE_PER_CPU\(struct avc_cache_stats, avc_cache_stats\) = \{ 0 \};\n#endif\n)"
-    s, n = re.subn(pattern, r"\1\n" + defs, s, count=1)
-    if n != 1:
+    anchor = "#endif\n\nstruct avc_entry {"
+    defs = "#endif\n\n#ifdef CONFIG_KSU_SUSFS\nextern u32 susfs_ksu_sid;\nextern u32 susfs_priv_app_sid;\nbool susfs_is_avc_log_spoofing_enabled = false;\n#endif\n\nstruct avc_entry {"
+    if anchor not in s:
         raise SystemExit("SUSFS AVC definition anchor not found")
+    s = s.replace(anchor, defs, 1)
 
-query_pattern = re.compile(
-    r"(\trc = security_sid_to_context\(state, tsid, &scontext, &scontext_len\);\n)"
-    r"(\tif \(rc\)\n\t\taudit_log_format\(ab, \" tsid=%d\", tsid\);\n"
-    r"\telse \{\n\t\taudit_log_format\(ab, \" tcontext=%s\", scontext\);\n"
-    r"\t\tkfree\(scontext\);\n\t\}\n)"
-)
+marker = "\trc = security_sid_to_context(state, tsid, &scontext, &scontext_len);\n"
+if "susfs_is_avc_log_spoofing_enabled))" not in s:
+    if s.count(marker) != 1:
+        raise SystemExit("SUSFS AVC query anchor is missing or ambiguous")
+    hook = marker + "#ifdef CONFIG_KSU_SUSFS\n\tif (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled)) {\n\t\tif (rc)\n\t\t\taudit_log_format(ab, \" tsid=%d\", susfs_priv_app_sid);\n\t\telse\n\t\t\taudit_log_format(ab, \" tcontext=%s\", \"u:r:priv_app:s0:c512,c768\");\n\t\tgoto bypass_orig_flow;\n\t}\n#endif\n"
+    s = s.replace(marker, hook, 1)
 
-if "if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled))" not in s:
-    replacement = r'''\1#ifdef CONFIG_KSU_SUSFS
-\tif (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled)) {
-\t\tif (rc)
-\t\t\taudit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
-\t\telse
-\t\t\taudit_log_format(ab, " tcontext=%s", "u:r:priv_app:s0:c512,c768");
-\t\tgoto bypass_orig_flow;
-\t}
-#endif
-
-\2
-#ifdef CONFIG_KSU_SUSFS
-bypass_orig_flow:
-#endif
-'''
-    s, n = query_pattern.subn(replacement, s, count=1)
-    if n != 1:
-        raise SystemExit("SUSFS AVC query anchor not found")
+# Place the bypass label immediately before the original target-SID audit flow.
+label_anchor = "\tBUG_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map));\n"
+if "bypass_orig_flow:" not in s:
+    if s.count(label_anchor) != 1:
+        raise SystemExit("SUSFS AVC bypass label anchor is missing or ambiguous")
+    s = s.replace(label_anchor, "#ifdef CONFIG_KSU_SUSFS\nbypass_orig_flow:\n#endif\n\n" + label_anchor, 1)
 
 required = [
     "extern u32 susfs_ksu_sid;",
