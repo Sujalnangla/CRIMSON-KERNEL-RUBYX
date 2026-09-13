@@ -21,7 +21,6 @@ if "susfs_is_avc_log_spoofing_enabled))" not in s:
     hook = marker + "#ifdef CONFIG_KSU_SUSFS\n\tif (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled)) {\n\t\tif (rc)\n\t\t\taudit_log_format(ab, \" tsid=%d\", susfs_priv_app_sid);\n\t\telse\n\t\t\taudit_log_format(ab, \" tcontext=%s\", \"u:r:priv_app:s0:c512,c768\");\n\t\tgoto bypass_orig_flow;\n\t}\n#endif\n"
     s = s.replace(marker, hook, 1)
 
-# Place the bypass label immediately before the original target-SID audit flow.
 label_anchor = "\tBUG_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map));\n"
 if "bypass_orig_flow:" not in s:
     if s.count(label_anchor) != 1:
