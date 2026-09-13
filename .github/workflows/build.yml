@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+# Minimal KSU Android 16 seccomp/manual-hook fix is already in fs/exec.c + kernel/reboot.c.
+# This build is intentionally kept separate from the abandoned full Rajdeep port.
+
 env:
   ARCH: arm64
   OUT_DIR: ${{ github.workspace }}/out
@@ -127,6 +130,15 @@ jobs:
           test "$(grep -c '^CONFIG_KSU=y$' "$OUT_DIR/.config")" -eq 1
           test "$(grep -c '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config")" -eq 1
           test "$(grep -c '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config")" -eq 1
+
+      - name: Verify minimal KSU manual-hook fix
+        run: |
+          set -eux
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
+          grep -q 'magic1 == KSU_INSTALL_MAGIC1' kernel/reboot.c
+          awk '/magic1 == KSU_INSTALL_MAGIC1/{found=1} /ns_capable\(pid_ns->user_ns, CAP_SYS_BOOT\)/{if(found) exit 0} END{if(!found) exit 1}' kernel/reboot.c
+          echo 'Minimal KSU manual-hook/seccomp fix present'
 
       - name: Build kernel
         run: |
