@@ -50,6 +50,7 @@ jobs:
           grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
           grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
           python3 scripts/apply-susfs-avc-fix.py
+          python3 scripts/apply-ksu-reboot-fix.py
           grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
           grep -q 'if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled))' security/selinux/avc.c
           grep -q 'bypass_orig_flow:' security/selinux/avc.c
@@ -85,7 +86,14 @@ jobs:
           grep -q 'ksu_handle_execveat' fs/exec.c
           grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
           grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
-          awk '/magic1 == KSU_INSTALL_MAGIC1/{found=1} /ns_capable\(pid_ns->user_ns, CAP_SYS_BOOT\)/{if(found) exit 0} END{if(!found) exit 1}' kernel/reboot.c
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('kernel/reboot.c').read_text()
+          hook = s.index('if (magic1 == KSU_INSTALL_MAGIC1)')
+          cap = s.index('if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))')
+          assert hook < cap, 'KSU reboot hook is after CAP_SYS_BOOT check'
+          print('KSU reboot supercall is intercepted before CAP_SYS_BOOT')
+          PY
 
       - name: Build kernel
         run: |
