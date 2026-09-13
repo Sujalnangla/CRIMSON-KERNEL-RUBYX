@@ -33,6 +33,7 @@ jobs:
           test -f localversion-crimson
           test -f fs/susfs.c
           test -f include/linux/susfs.h
+          test -f scripts/apply-susfs-vfs-integration.py
           test -f scripts/apply-ksu-manual-hooks.py
 
       - name: Integrate KernelSU-Next SUSFS
@@ -50,6 +51,7 @@ jobs:
           grep -q '^config KSU_SUSFS$' drivers/kernelsu/Kconfig
           grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
           grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
+          python3 scripts/apply-susfs-vfs-integration.py
           python3 scripts/apply-susfs-avc-fix.py
           python3 scripts/apply-ksu-reboot-fix.py
           python3 scripts/apply-ksu-manual-hooks.py
@@ -73,7 +75,7 @@ jobs:
           rm -rf out
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ruby_defconfig
-          ./scripts/config --file out/.config --enable KSU --enable KSU_SUSFS --enable KSU_MANUAL_HOOK
+          ./scripts/config --file out/.config --enable KSU --enable KSU_SUSFS --enable KSU_MANUAL_HOOK --disable KPROBES
           sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' out/.config
           sed -i '/^CONFIG_LOCALVERSION_AUTO=/d' out/.config
           echo 'CONFIG_LOCALVERSION_AUTO=n' >> out/.config
@@ -81,8 +83,9 @@ jobs:
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
+          grep -q '^# CONFIG_KPROBES is not set$' out/.config
 
-      - name: Verify KSU hooks
+      - name: Verify KSU/SUSFS hooks
         run: |
           set -eux
           grep -q 'ksu_handle_execveat' fs/exec.c
@@ -91,8 +94,18 @@ jobs:
           grep -q 'ksu_handle_stat' fs/stat.c
           grep -q 'ksu_handle_sys_read' fs/read_write.c
           grep -q 'ksu_handle_input_handle_event' drivers/input/input.c
-          grep -q 'susfs_is_inode_sus_path' fs/readdir.c
           grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+          grep -q 'susfs_is_inode_sus_path' fs/namei.c
+          grep -q 'susfs_fake_qstr_name' fs/namei.c
+          grep -q 'susfs_is_inode_sus_path' fs/readdir.c
+          grep -q 'susfs_generic_fillattr_spoofer' fs/stat.c
+          grep -q 'susfs_open_redirect_spoof_do_sys_openat' fs/open.c
+          grep -q 'susfs_spoof_uname' kernel/sys.c
+          grep -q 'susfs_spoof_cmdline_or_bootconfig' fs/proc/cmdline.c
+          grep -q 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS' kernel/kallsyms.c
+          grep -q 'susfs_is_current_ksu_domain' fs/proc_namespace.c
+          grep -q 'SUS_MOUNT' fs/statfs.c
+          grep -q 'SUS_MAP' fs/proc/task_mmu.c
           python3 - <<'PY'
           from pathlib import Path
           s = Path('kernel/reboot.c').read_text()
