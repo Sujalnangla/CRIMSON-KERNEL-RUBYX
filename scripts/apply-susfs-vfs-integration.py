@@ -93,17 +93,21 @@ def patch_open(target):
     start = text.find("long do_sys_open(")
     if start < 0:
         raise SystemExit("SUSFS integration: Crimson do_sys_open not found")
-    if "bool is_inode_open_redirect = false;" not in text[start:text.find("SYSCALL_DEFINE3(open", start)]:
+    end = text.find("SYSCALL_DEFINE3(open", start)
+    if end < 0:
+        raise SystemExit("SUSFS integration: do_sys_open end not found")
+    body = text[start:end]
+    if "bool is_inode_open_redirect = false;" not in body:
         decl_anchor = "\tstruct filename *tmp;\n"
         dpos = text.find(decl_anchor, start)
-        if dpos < 0:
+        if dpos < 0 or dpos >= end:
             raise SystemExit("SUSFS integration: do_sys_open declaration anchor not found")
         text = text[:dpos + len(decl_anchor)] + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tbool is_inode_open_redirect = false;\n#endif\n" + text[dpos + len(decl_anchor):]
     marker = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);\n"
     pos = text.find(marker, start)
-    if pos < 0:
+    if pos < 0 or pos >= text.find("SYSCALL_DEFINE3(open", start):
         raise SystemExit("SUSFS integration: do_sys_open filp_open anchor not found")
-    if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:]:
+    if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:text.find("SYSCALL_DEFINE3(open", start)]:
         hook = (
             "#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n"
             "\t\tif (!is_inode_open_redirect && f && !IS_ERR(f) &&\n"
@@ -124,7 +128,7 @@ def patch_open(target):
         text = text[:pos + len(marker)] + hook + text[pos + len(marker):]
         retry_anchor = "\tfd = get_unused_fd_flags(flags);\n"
         rpos = text.find(retry_anchor, start)
-        if rpos < 0:
+        if rpos < 0 or rpos >= text.find("SYSCALL_DEFINE3(open", start):
             raise SystemExit("SUSFS integration: do_sys_open retry anchor not found")
         text = text[:rpos] + "retry:\n" + text[rpos:]
     path.write_text(text)
@@ -157,8 +161,8 @@ int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt)
 	return mnt_id;
 }
 
-/* Return the first non-SUS vfsmount and acquire both references expected by
- * the statfs caller: one mount reference and one dentry-root reference. */
+/* Return the first non-SUS vfsmount and acquire the mount and root-dentry
+ * references expected by the statfs caller before it releases them. */
 struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt)
 {
 	struct mount *mnt = real_mount(vfsmnt);
@@ -173,15 +177,15 @@ struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt)
 		return NULL;
 	}
 
-	/* The caller always dput()/mntput()s the returned objects, including
-	 * when the first non-SUS mount is the original mount. */
+	/* The caller always dput()/mntput()s both objects, so both references
+	 * must be acquired even when the first non-SUS mount is the original. */
 	mntget(&mnt->mnt);
+	dget(mnt->mnt.mnt_root);
 	if (mnt == real_mount(vfsmnt)) {
 		unlock_mount_hash();
 		return vfsmnt;
 	}
 
-	dget(mnt->mnt.mnt_root);
 	unlock_mount_hash();
 	return &mnt->mnt;
 }
