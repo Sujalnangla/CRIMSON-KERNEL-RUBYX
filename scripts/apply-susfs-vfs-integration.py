@@ -93,6 +93,12 @@ def patch_open(target):
     start = text.find("long do_sys_open(")
     if start < 0:
         raise SystemExit("SUSFS integration: Crimson do_sys_open not found")
+    if "bool is_inode_open_redirect = false;" not in text[start:text.find("SYSCALL_DEFINE3(open", start)]:
+        decl_anchor = "\tstruct filename *tmp;\n"
+        dpos = text.find(decl_anchor, start)
+        if dpos < 0:
+            raise SystemExit("SUSFS integration: do_sys_open declaration anchor not found")
+        text = text[:dpos + len(decl_anchor)] + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tbool is_inode_open_redirect = false;\n#endif\n" + text[dpos + len(decl_anchor):]
     marker = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);\n"
     pos = text.find(marker, start)
     if pos < 0:
@@ -100,11 +106,12 @@ def patch_open(target):
     if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:]:
         hook = (
             "#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n"
-            "\t\tif (f && !IS_ERR(f) &&\n"
+            "\t\tif (!is_inode_open_redirect && f && !IS_ERR(f) &&\n"
             "\t\t    SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(file_inode(f))) {\n"
             "\t\t\tstruct filename *fake_filename =\n"
             "\t\t\t\tsusfs_open_redirect_spoof_do_sys_openat(file_inode(f));\n"
             "\t\t\tif (fake_filename && !IS_ERR(fake_filename)) {\n"
+            "\t\t\t\tis_inode_open_redirect = true;\n"
             "\t\t\t\tfilp_close(f, NULL);\n"
             "\t\t\t\tput_unused_fd(fd);\n"
             "\t\t\t\tputname(tmp);\n"
@@ -150,16 +157,12 @@ int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt)
 	return mnt_id;
 }
 
-/* Return the first non-SUS vfsmount in the parent chain and take references
- * required by the callers that inspect its root before dropping it. */
+/* Return the first non-SUS vfsmount and acquire both references expected by
+ * the statfs caller: one mount reference and one dentry-root reference. */
 struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt)
 {
-	struct mount *mnt;
+	struct mount *mnt = real_mount(vfsmnt);
 
-	if (!vfsmnt)
-		return NULL;
-
-	mnt = real_mount(vfsmnt);
 	lock_mount_hash();
 	for (; mnt && mnt->mnt_parent && mnt != mnt->mnt_parent &&
 	       mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
@@ -167,13 +170,17 @@ struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt)
 		;
 	if (!mnt) {
 		unlock_mount_hash();
-		return vfsmnt;
+		return NULL;
 	}
+
+	/* The caller always dput()/mntput()s the returned objects, including
+	 * when the first non-SUS mount is the original mount. */
+	mntget(&mnt->mnt);
 	if (mnt == real_mount(vfsmnt)) {
 		unlock_mount_hash();
 		return vfsmnt;
 	}
-	mntget(&mnt->mnt);
+
 	dget(mnt->mnt.mnt_root);
 	unlock_mount_hash();
 	return &mnt->mnt;
