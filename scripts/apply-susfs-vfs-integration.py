@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Apply the missing SUSFS v2.2.0 VFS/proc integration used by Crimson CI.
 
-The Crimson tree already contains the SUSFS core. This script ports only the
-selected VFS/proc integration hunks from the pinned Rajdeep commit.
+The Crimson tree already contains the SUSFS core. The pinned Rajdeep commit
+contains the reference VFS/proc integration, but several Crimson files have
+diverged enough that a normal textual patch does not apply. Prefer Git's
+three-way merge machinery so only the actual SUSFS changes are merged while
+retaining Crimson's surrounding code.
 """
 from pathlib import Path
 import subprocess
@@ -53,7 +56,7 @@ def main():
         run("git", "fetch", "--no-tags", "--depth=1", "origin", RAJDEEP_COMMIT, RAJDEEP_PARENT, cwd=repo)
 
         patch = subprocess.run(
-            ["git", "diff", RAJDEEP_PARENT, RAJDEEP_COMMIT, "--", *FILES],
+            ["git", "diff", "--full-index", RAJDEEP_PARENT, RAJDEEP_COMMIT, "--", *FILES],
             cwd=repo, check=True, text=True, stdout=subprocess.PIPE,
         ).stdout
         if not patch.strip():
@@ -62,32 +65,35 @@ def main():
         patch_path = Path(td) / "susfs-integration.patch"
         patch_path.write_text(patch)
 
-        # IMPORTANT: validate/apply against the Crimson checkout, not the
-        # temporary Rajdeep repository. The old implementation accidentally
-        # used the temporary repo as cwd, which contains no working-tree files.
+        # First try the ordinary patch path for files that still match Crimson.
         check = check_patch(patch_path, target)
         if check.returncode == 0:
             run("git", "apply", "--whitespace=nowarn", str(patch_path), cwd=target)
             print("SUSFS integration: normal patch applied")
-        else:
-            print(check.stdout, end="")
-            zero_patch = Path(td) / "susfs-integration-zero-context.patch"
-            zero = subprocess.run(
-                ["git", "diff", "-U0", RAJDEEP_PARENT, RAJDEEP_COMMIT, "--", *FILES],
-                cwd=repo, check=True, text=True, stdout=subprocess.PIPE,
-            ).stdout
-            zero_patch.write_text(zero)
-            zero_check = check_patch(zero_patch, target, "--unidiff-zero")
-            if zero_check.returncode != 0:
-                print(zero_check.stdout, end="")
-                raise SystemExit(
-                    "SUSFS integration: normal and zero-context patches both fail; "
-                    "manual integration is required for a remaining Crimson divergence"
-                )
-            run("git", "apply", "--unidiff-zero", "--whitespace=nowarn", str(zero_patch), cwd=target)
-            print("SUSFS integration: zero-context patch applied for Crimson-diverged VFS files")
+            print("SUSFS v2.2.0 VFS/proc integration applied")
+            return
 
-    print("SUSFS v2.2.0 VFS/proc integration applied")
+        print("SUSFS integration: normal patch does not apply; trying three-way merge")
+        print(check.stdout, end="")
+
+        # Git three-way application is appropriate here: the patch records the
+        # exact Rajdeep parent blob, allowing Git to merge the SUSFS additions
+        # into a locally diverged Crimson file instead of replacing the file.
+        threeway = subprocess.run(
+            ["git", "apply", "--3way", "--whitespace=nowarn", str(patch_path)],
+            cwd=target, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if threeway.returncode == 0:
+            print(threeway.stdout, end="")
+            print("SUSFS integration: three-way merge applied")
+            print("SUSFS v2.2.0 VFS/proc integration applied")
+            return
+
+        print(threeway.stdout, end="")
+        raise SystemExit(
+            "SUSFS integration: normal patch and three-way merge both failed; "
+            "the remaining files require targeted source integration"
+        )
 
 
 if __name__ == "__main__":
