@@ -8,7 +8,6 @@ RAJDEEP_REPO = "https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git"
 RAJDEEP_COMMIT = "d07fe787f959464a653596f3a23b5e88c4510644"
 RAJDEEP_PARENT = "bff45a69404e25fd5a1904ffe11ab8c1e6ce1604"
 
-# These files are close enough to the Rajdeep base for a per-file patch.
 CLEAN_FILES = [
     "fs/readdir.c", "fs/stat.c", "fs/statfs.c",
     "fs/proc/cmdline.c", "fs/proc/fd.c", "fs/proc/task_mmu.c",
@@ -52,42 +51,32 @@ def insert_once(text, anchor, addition, label):
 def patch_namei(target):
     path = target / "fs/namei.c"
     text = path.read_text()
-    text = insert_once(
-        text,
-        "#include <linux/build_bug.h>\n",
+    text = insert_once(text, "#include <linux/build_bug.h>\n",
         "#if defined(CONFIG_KSU_SUSFS_SUS_PATH)\n#include <linux/susfs_def.h>\n#endif\n",
-        "namei include",
-    )
-    text = insert_once(
-        text,
-        "#include <trace/events/namei.h>\n",
+        "namei include")
+    text = insert_once(text, "#include <trace/events/namei.h>\n",
         "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\nextern bool susfs_is_inode_sus_path(struct inode *inode);\n#endif\n\n",
-        "namei extern",
-    )
+        "namei extern")
+    marker = "\tif (unlikely(!dentry))\n"
     start = text.find("static struct dentry *lookup_dcache(")
     if start < 0:
         raise SystemExit("SUSFS integration: lookup_dcache not found")
-    end = text.find("\n}\n", start)
-    if end < 0:
-        raise SystemExit("SUSFS integration: lookup_dcache end not found")
-    body = text[start:end]
-    marker = "\tif (unlikely(!dentry))\n"
-    hook = (
-        "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-        "\tif (dentry && !IS_ERR(dentry) && dentry->d_inode &&\n"
-        "\t\tsusfs_is_inode_sus_path(dentry->d_inode)) {\n"
-        "\t\tif (d_in_lookup(dentry))\n"
-        "\t\t\td_lookup_done(dentry);\n"
-        "\t\tdput(dentry);\n"
-        "\t\treturn NULL;\n"
-        "\t}\n"
-        "#endif\n"
-    )
-    if "susfs_is_inode_sus_path(dentry->d_inode)" not in body:
-        if body.count(marker) != 1:
-            raise SystemExit("SUSFS integration: lookup_dcache anchor not unique")
-        body = body.replace(marker, hook + marker, 1)
-        text = text[:start] + body + text[end:]
+    pos = text.find(marker, start)
+    if pos < 0:
+        raise SystemExit("SUSFS integration: lookup_dcache anchor not found")
+    if "susfs_is_inode_sus_path(dentry->d_inode)" not in text[start:pos]:
+        hook = (
+            "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+            "\tif (dentry && !IS_ERR(dentry) && dentry->d_inode &&\n"
+            "\t\tsusfs_is_inode_sus_path(dentry->d_inode)) {\n"
+            "\t\tif (d_in_lookup(dentry))\n"
+            "\t\t\td_lookup_done(dentry);\n"
+            "\t\tdput(dentry);\n"
+            "\t\treturn NULL;\n"
+            "\t}\n"
+            "#endif\n"
+        )
+        text = text[:pos] + hook + text[pos:]
     path.write_text(text)
     print("SUSFS integration: fs/namei.c targeted SUS_PATH lookup hook applied")
 
@@ -95,24 +84,18 @@ def patch_namei(target):
 def patch_open(target):
     path = target / "fs/open.c"
     text = path.read_text()
-    text = insert_once(
-        text,
-        '#include <linux/compat.h>\n',
+    text = insert_once(text, '#include <linux/compat.h>\n',
         '#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nextern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);\n#endif\n\n',
-        "open extern",
-    )
+        "open extern")
     start = text.find("long do_sys_open(")
     if start < 0:
         raise SystemExit("SUSFS integration: Crimson do_sys_open not found")
-    end = text.find("\n}\n", start)
-    if end < 0:
-        raise SystemExit("SUSFS integration: do_sys_open end not found")
-    body = text[start:end]
-    if "susfs_open_redirect_spoof_do_sys_openat" not in body:
-        marker = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);\n"
-        if body.count(marker) != 1:
-            raise SystemExit("SUSFS integration: do_sys_open filp_open anchor not unique")
-        body = body.replace(marker, marker + (
+    marker = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);\n"
+    pos = text.find(marker, start)
+    if pos < 0:
+        raise SystemExit("SUSFS integration: do_sys_open filp_open anchor not found")
+    if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:]):
+        hook = (
             "#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n"
             "\t\tif (f && !IS_ERR(f) &&\n"
             "\t\t    SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(file_inode(f))) {\n"
@@ -127,9 +110,13 @@ def patch_open(target):
             "\t\t\t}\n"
             "\t\t}\n"
             "#endif\n"
-        ), 1)
-        body = body.replace("\tfd = get_unused_fd_flags(flags);\n", "retry:\n\tfd = get_unused_fd_flags(flags);\n", 1)
-        text = text[:start] + body + text[end:]
+        )
+        text = text[:pos + len(marker)] + hook + text[pos + len(marker):]
+        retry_anchor = "\tfd = get_unused_fd_flags(flags);\n"
+        rpos = text.find(retry_anchor, start)
+        if rpos < 0:
+            raise SystemExit("SUSFS integration: do_sys_open retry anchor not found")
+        text = text[:rpos] + "retry:\n" + text[rpos:]
     path.write_text(text)
     print("SUSFS integration: fs/open.c targeted OPEN_REDIRECT hook applied")
 
