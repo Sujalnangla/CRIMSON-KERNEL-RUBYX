@@ -85,6 +85,9 @@ def patch_open(target):
     path = target / "fs/open.c"
     text = path.read_text()
     text = insert_once(text, '#include <linux/compat.h>\n',
+        '#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n#include <linux/susfs_def.h>\n#endif\n',
+        "open SUSFS definitions include")
+    text = insert_once(text, '#include <linux/compat.h>\n',
         '#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nextern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);\n#endif\n\n',
         "open extern")
     start = text.find("long do_sys_open(")
@@ -121,6 +124,67 @@ def patch_open(target):
     print("SUSFS integration: fs/open.c targeted OPEN_REDIRECT hook applied")
 
 
+def patch_namespace(target):
+    path = target / "fs/namespace.c"
+    text = path.read_text()
+    text = insert_once(text, '#include <linux/sched/task.h>\n',
+        '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux/susfs_def.h>\n#endif\n',
+        "namespace SUSFS definitions include")
+    if "susfs_get_non_sus_mnt_id_from_mnt" not in text:
+        helper = r'''
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+/* Return the first non-SUS mount in the parent chain. */
+int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt)
+{
+	struct mount *mnt = orig_mnt;
+	int mnt_id;
+
+	lock_mount_hash();
+	for (; mnt && mnt->mnt_parent && mnt != mnt->mnt_parent &&
+	       mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
+	     mnt = mnt->mnt_parent)
+		;
+	mnt_id = mnt ? mnt->mnt_id : 0;
+	unlock_mount_hash();
+	return mnt_id;
+}
+
+/* Return the first non-SUS vfsmount in the parent chain and take references
+ * required by the callers that inspect its root before dropping it. */
+struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt)
+{
+	struct mount *mnt;
+
+	if (!vfsmnt)
+		return NULL;
+
+	mnt = real_mount(vfsmnt);
+	lock_mount_hash();
+	for (; mnt && mnt->mnt_parent && mnt != mnt->mnt_parent &&
+	       mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
+	     mnt = mnt->mnt_parent)
+		;
+	if (!mnt) {
+		unlock_mount_hash();
+		return vfsmnt;
+	}
+	if (mnt == real_mount(vfsmnt)) {
+		unlock_mount_hash();
+		return vfsmnt;
+	}
+	mntget(&mnt->mnt);
+	dget(mnt->mnt.mnt_root);
+	unlock_mount_hash();
+	return &mnt->mnt;
+}
+#endif /* CONFIG_KSU_SUSFS_SUS_MOUNT */
+'''
+        text += helper
+    path.write_text(text)
+    print("SUSFS integration: fs/namespace.c mount helper symbols applied")
+
+
 def main():
     target = Path.cwd()
     defconfig = target / "arch/arm64/configs/ruby_defconfig"
@@ -145,6 +209,7 @@ def main():
 
     patch_namei(target)
     patch_open(target)
+    patch_namespace(target)
     print("SUSFS integration: fs/proc/base.c remains intentionally unmodified because its Crimson layout diverges from Rajdeep's proc readlink implementation")
     print("SUSFS v2.2.0 targeted VFS/proc integration applied")
 
