@@ -1,0 +1,13 @@
+name: Crimson CI Smoke
+
+on:
+  push:
+    branches:
+      - ksu-susfs
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test
+        run: echo "Crimson GitHub Actions runner is working"
