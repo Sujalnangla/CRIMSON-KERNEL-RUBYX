@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Apply the targeted KernelSU manual hooks used by the 4.19 Crimson tree.
 
-This intentionally patches only the small hook sites that are absent from the
-Crimson baseline; it does not replace VFS/SUSFS files wholesale.
+SUSFS VFS/proc integration is applied separately by
+apply-susfs-vfs-integration.py. This script handles only KernelSU manual hooks.
 """
 from pathlib import Path
 
@@ -69,23 +69,9 @@ replace_once(
 )
 replace_once(
     "drivers/input/input.c",
-    'void input_event(struct input_dev *dev,\n\t\t unsigned int type, unsigned int code, int value)\n{\n\tunsigned long flags;\n\n\tif (is_event_supported(type, dev->evbit, EV_MAX)) {',
-    'void input_event(struct input_dev *dev,\n\t\t unsigned int type, unsigned int code, int value)\n{\n\tunsigned long flags;\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n#endif\n\n\tif (is_event_supported(type, dev->evbit, EV_MAX)) {',
+    'void input_event(struct input_dev *dev,\n\t\t unsigned int type, unsigned int code, int value)\n{\n\tunsigned long flags;\n',
+    '#ifdef CONFIG_KSU\nextern bool ksu_input_hook __read_mostly;\nextern __attribute__((cold)) int ksu_handle_input_handle_event(\n unsigned int *type, unsigned int *code, int *value);\n#endif\nvoid input_event(struct input_dev *dev,\n\t\t unsigned int type, unsigned int code, int value)\n{\n\tunsigned long flags;\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n#endif\n',
     "input hook",
 )
 
-# SUSFS hidden-path filtering is a separate, small VFS visibility hook.
-replace_once(
-    "fs/readdir.c",
-    '#include <linux/fs.h>\n',
-    '#include <linux/fs.h>\n\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n#include <linux/susfs_def.h>\nextern bool susfs_is_inode_sus_path(struct inode *inode);\n#endif\n',
-    "readdir SUSFS declaration",
-)
-replace_once(
-    "fs/readdir.c",
-    '\tstruct inode *inode = file_inode(file);\n\n\tif (!dir_emit_dots(file, ctx))',
-    '\tstruct inode *inode = file_inode(file);\n\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\tif (susfs_is_inode_sus_path(inode))\n\t\treturn -ENOENT;\n#endif\n\n\tif (!dir_emit_dots(file, ctx))',
-    "readdir SUSFS filter",
-)
-
-print("KSU/SUSFS targeted manual hooks are ready")
+print("KSU manual hooks are ready")
