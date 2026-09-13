@@ -1,4 +1,4 @@
-name: Crimson Kernel CI
+name: Crimson Ruby Kernel
 
 on:
   push:
@@ -8,13 +8,210 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build Crimson Ruby KSU/SUSFS
+    runs-on: ubuntu-24.04
+    env:
+      ARCH: arm64
+      OUT_DIR: ${{ github.workspace }}/out
+      KERNEL_DEFCONFIG: ruby_defconfig
+      TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
+      TOOLCHAIN_DIR: clang
+      KERNELSU_BRANCH: susfs
+      KERNELSU_REPO: https://github.com/wodanesdag/KernelSU-Next.git
+      ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
+      ANYKERNEL_BRANCH: eclipse-v2
+      EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-Crimson-ruby-st19
+      KBUILD_BUILD_USER: Shu
+      KBUILD_BUILD_HOST: Crimson-Ruby
+
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
-      - name: Runner test
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Install build dependencies
         run: |
-          echo "Crimson CI runner is working"
-          echo "Commit: $GITHUB_SHA"
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache flex git libelf-dev libfl-dev \
+            libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
+
+      - name: Validate source layout
+        run: |
+          set -eux
           test -f Makefile
-          test -f arch/arm64/configs/ruby_defconfig
+          test -f arch/arm64/Makefile
+          test -f arch/arm64/configs/$KERNEL_DEFCONFIG
+          test -f localversion-cip
+          test -f localversion-st
+          test -f localversion-crimson
+          test -f fs/susfs.c
+          test -f include/linux/susfs.h
+          echo "Kernel source: repository root"
+          echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
+
+      - name: Integrate KernelSU-Next SUSFS
+        run: |
+          set -euxo pipefail
+          rm -rf KernelSU-Next
+          git clone -b "$KERNELSU_BRANCH" --depth=1 "$KERNELSU_REPO" KernelSU-Next
+          git -C KernelSU-Next remote set-head origin "$KERNELSU_BRANCH"
+          test "$(git -C KernelSU-Next branch --show-current)" = "$KERNELSU_BRANCH"
+          echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
+          bash KernelSU-Next/kernel/setup.sh "$KERNELSU_BRANCH"
+
+          test -L drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
+          grep -q '^config KSU$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_SUSFS$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
+
+          python3 scripts/apply-susfs-avc-fix.py
+          grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
+          grep -q 'if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled))' security/selinux/avc.c
+          grep -q 'audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);' security/selinux/avc.c
+          grep -q '"u:r:priv_app:s0:c512,c768"' security/selinux/avc.c
+          grep -q '^bypass_orig_flow:' security/selinux/avc.c
+
+      - name: Configure ccache
+        run: |
+          set -eux
+          ccache --max-size=5G
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+
+      - name: Fetch Android Clang r563880
+        run: |
+          set -euxo pipefail
+          rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
+          mkdir -p "$TOOLCHAIN_DIR"
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+            "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
+          tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
+          for tool in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip; do
+            test -x "$TOOLCHAIN_DIR/bin/$tool"
+          done
+          "$TOOLCHAIN_DIR/bin/clang" --version | head -1
+
+      - name: Configure kernel
+        run: |
+          set -eux
+          rm -rf "$OUT_DIR"
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
+          ./scripts/config --file "$OUT_DIR/.config" \
+            --enable KSU \
+            --enable KSU_SUSFS \
+            --enable KSU_MANUAL_HOOK
+          sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
+          sed -i '/^CONFIG_LOCALVERSION_AUTO=/d' "$OUT_DIR/.config"
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> "$OUT_DIR/.config"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -E '^CONFIG_(KSU|KSU_SUSFS|KSU_MANUAL_HOOK|LOCALVERSION(_AUTO)?)=' "$OUT_DIR/.config"
+          test "$(grep -c '^CONFIG_KSU=y$' "$OUT_DIR/.config")" -eq 1
+          test "$(grep -c '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config")" -eq 1
+          test "$(grep -c '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config")" -eq 1
+
+      - name: Verify minimal Android 16 KSU fix
+        run: |
+          set -eux
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+          awk '/magic1 == KSU_INSTALL_MAGIC1/{found=1} /ns_capable\(pid_ns->user_ns, CAP_SYS_BOOT\)/{if(found) exit 0} END{if(!found) exit 1}' kernel/reboot.c
+          echo 'Minimal KSU manual exec/reboot integration verified'
+
+      - name: Build kernel
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" \
+            CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            LOCALVERSION="" \
+            KBUILD_BUILD_USER="$KBUILD_BUILD_USER" \
+            KBUILD_BUILD_HOST="$KBUILD_BUILD_HOST" \
+            KCFLAGS="-Wno-error=implicit-function-declaration"
+
+      - name: Verify kernel output
+        run: |
+          set -eux
+          release=$(make O="$OUT_DIR" ARCH="$ARCH" LOCALVERSION="" -s kernelrelease)
+          echo "Built kernel release: $release"
+          test "$release" = "$EXPECTED_KERNEL_RELEASE"
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
+            KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+          elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
+            KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz"
+          else
+            echo 'No kernel image produced' >&2
+            find "$OUT_DIR/arch/arm64/boot" -maxdepth 2 -type f -print >&2
+            exit 1
+          fi
+          cp "$KERNEL_IMAGE" "$GITHUB_WORKSPACE/Image.gz"
+          if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then
+            cp "$OUT_DIR/arch/arm64/boot/dtbo.img" "$GITHUB_WORKSPACE/dtbo.img"
+          fi
+
+      - name: Record build source
+        run: |
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Commit: $GITHUB_SHA"
+            echo "Defconfig: arch/arm64/configs/$KERNEL_DEFCONFIG"
+            echo "Expected release: $EXPECTED_KERNEL_RELEASE"
+            echo "Kernel banner: Crimson Ruby Kernel - By Shu"
+            echo "Kernel build user: $KBUILD_BUILD_USER"
+            echo "Kernel build host: $KBUILD_BUILD_HOST"
+            echo "KernelSU-Next: $KERNELSU_REPO $KERNELSU_BRANCH"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
+            echo "SUSFS: enabled"
+          } | tee "$GITHUB_WORKSPACE/build-source.txt"
+
+      - name: Package AnyKernel3
+        run: |
+          set -eux
+          git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
+          cp Image.gz AnyKernel3/Image.gz
+          if [ -f dtbo.img ]; then cp dtbo.img AnyKernel3/dtbo.img; fi
+          cp build-source.txt AnyKernel3/build-source.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          ak = Path('AnyKernel3')
+          script = ak / 'anykernel.sh'
+          text = script.read_text()
+          old = 'kernel.string=Eclipse Kernel'
+          new = 'kernel.string=Crimson Kernel - By Shu'
+          if old not in text:
+              raise SystemExit('Expected Eclipse AnyKernel branding was not found')
+          script.write_text(text.replace(old, new, 1))
+          (ak / 'banner').write_text('''==================================================
+                CRIMSON KERNEL
+                    BY SHU
+==================================================
+        Crimson Ruby | MediaTek MT6877
+              Redmi Note 12 Pro/Pro+
+==================================================
+''')
+          PY
+          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
+          grep -q 'CRIMSON KERNEL' AnyKernel3/banner
+          grep -q 'BY SHU' AnyKernel3/banner
+          cd AnyKernel3
+          zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-ruby-${{ github.run_number }}
+          path: |
+            Image.gz
+            dtbo.img
+            build-source.txt
+            Crimson-ruby-*.zip
+          if-no-files-found: error
