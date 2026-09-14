@@ -22,12 +22,6 @@
 #include <linux/version.h>
 #endif
 
-#ifdef CONFIG_KSU
-__attribute__((hot))
-extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
-		int *flags);
-#endif
-
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
 
@@ -41,8 +35,7 @@ extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
  * operation is supplied.
  */
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-extern void susfs_generic_fillattr_spoofer(struct inode *inode,
-                                           struct kstat *stat);
+extern void susfs_generic_fillattr_spoofer(struct inode *inode, struct kstat *stat);
 #endif
 
 void generic_fillattr(struct inode *inode, struct kstat *stat)
@@ -60,7 +53,6 @@ void generic_fillattr(struct inode *inode, struct kstat *stat)
 	stat->ctime = inode->i_ctime;
 	stat->blksize = i_blocksize(inode);
 	stat->blocks = inode->i_blocks;
-
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	susfs_generic_fillattr_spoofer(inode, stat);
 #endif
@@ -106,8 +98,8 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 #else
 		return inode->i_op->getattr(path, stat, request_mask,
 					    query_flags);
-#endif
 
+#endif
 	generic_fillattr(inode, stat);
 	return 0;
 }
@@ -382,18 +374,22 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 	return cp_new_stat(&stat, statbuf);
 }
 
+#ifdef CONFIG_KSU
+__attribute__((hot)) 
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
+				int *flags);
+#endif
+
 #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
 SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 		struct stat __user *, statbuf, int, flag)
 {
-#ifdef CONFIG_KSU
-        if (unlikely(ksu_handle_stat(&dfd, &filename, &flag)))
-                return -EACCES;
-#endif
-
 	struct kstat stat;
 	int error;
 
+#ifdef CONFIG_KSU
+	ksu_handle_stat(&dfd, &filename, &flag);
+#endif
 	error = vfs_fstatat(dfd, filename, &stat, flag);
 	if (error)
 		return error;
@@ -544,6 +540,9 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 	struct kstat stat;
 	int error;
 
+#ifdef CONFIG_KSU // 32-bit su
+	ksu_handle_stat(&dfd, &filename, &flag); 
+#endif
 	error = vfs_fstatat(dfd, filename, &stat, flag);
 	if (error)
 		return error;
