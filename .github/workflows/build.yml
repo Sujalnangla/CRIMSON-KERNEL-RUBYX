@@ -1,6 +1,6 @@
 name: Build Crimson Ruby Kernel
 
-run-name: Build Crimson Ruby Kernel #${{ github.run_number }}
+run-name: "Build Crimson Ruby Kernel #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -35,9 +35,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache flex git libelf-dev libfl-dev \
-            libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
+          sudo apt-get install -y bc bison build-essential ccache flex git libelf-dev libfl-dev libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
       - name: Validate source layout
         run: |
           set -eux
