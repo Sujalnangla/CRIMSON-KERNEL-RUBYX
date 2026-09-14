@@ -3,7 +3,7 @@
     "kernelSource": {
       "name": "CRIMSON-KERNEL-RUBYX",
       "repo": "https://github.com/Sujalnangla/CRIMSON-KERNEL-RUBYX",
-      "branch": "main",
+      "branch": "ksu-susfs",
       "device": "ruby",
       "defconfig": "ruby_defconfig"
     },
@@ -12,28 +12,23 @@
     "ccache": "true",
     "AnyKernel3": {
       "use": "true",
-      "repo": "https://github.com/osm0sis/AnyKernel3",
-      "branch": "master",
+      "repo": "https://github.com/rajdeep-3305/AnyKernel3",
+      "branch": "eclipse-v2",
       "release": "true"
     },
     "toolchains": [
       {
-        "name": "proton-clang",
-        "repo": "https://github.com/kdrag0n/proton-clang",
-        "branch": "master",
-        "binPath": [
-          "bin"
-        ]
+        "name": "clang",
+        "repo": "",
+        "branch": "",
+        "url": "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz",
+        "binPath": ["bin"]
       }
     ],
     "params": {
       "ARCH": "arm64",
       "CC": "clang",
-      "externalCommand": {
-        "CLANG_TRIPLE": "aarch64-linux-gnu-",
-        "CROSS_COMPILE": "aarch64-linux-android-",
-        "CROSS_COMPILE_ARM32": "arm-linux-androideabi-"
-      }
+      "externalCommand": {}
     }
   }
 ]
