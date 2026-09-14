@@ -126,7 +126,8 @@ jobs:
           set -euxo pipefail
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           export USE_CCACHE=1
-          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip LOCALVERSION="" KCFLAGS="-Wno-error=implicit-function-declaration"
+          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip LOCALVERSION="" KCFLAGS="-Wno-error=implicit-function-declaration" Image.gz-dtb
+          test -s "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
 
       - name: Verify and package
         run: |
