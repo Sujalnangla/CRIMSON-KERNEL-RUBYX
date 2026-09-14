@@ -1,3 +1,4 @@
+# Crimson Kernel CI — push-triggered build and manual workflow dispatch
 name: Crimson Ruby Kernel Build
 
 on:
@@ -54,7 +55,7 @@ jobs:
           test -f localversion-crimson
           grep -q '^# CONFIG_KPROBES is not set$' arch/arm64/configs/${KERNEL_DEFCONFIG}
           grep -q '^obj-$(CONFIG_KSU) += kernelsu/$' drivers/Makefile
-          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\\.o$' fs/Makefile
 
       - name: Integrate KernelSU Next SUSFS
         run: |
