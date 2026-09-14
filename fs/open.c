@@ -32,6 +32,18 @@
 #include <linux/dnotify.h>
 #include <linux/compat.h>
 
+#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+		int *mode, int *flags);
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+#include <linux/susfs_def.h>
+extern struct filename *susfs_open_redirect_spoof_do_sys_openat(
+        struct inode *inode);
+#endif
+
 #include "internal.h"
 #include <trace/hooks/syscall_check.h>
 
@@ -356,6 +368,11 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
  */
 long do_faccessat(int dfd, const char __user *filename, int mode)
 {
+#ifdef CONFIG_KSU
+        if (unlikely(ksu_handle_faccessat(&dfd, &filename, &mode, NULL)))
+                return -EACCES;
+#endif
+
 	const struct cred *old_cred;
 	struct cred *override_cred;
 	struct path path;
@@ -1095,30 +1112,58 @@ EXPORT_SYMBOL(file_open_root);
 
 long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 {
-	struct open_flags op;
-	int fd = build_open_flags(flags, mode, &op);
-	struct filename *tmp;
+        struct open_flags op;
+        int fd = build_open_flags(flags, mode, &op);
+        struct filename *tmp;
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+        struct filename *fake_filename = NULL;
+        bool is_inode_open_redirect = false;
+#endif
 
-	if (fd)
-		return fd;
+        if (fd)
+                return fd;
 
-	tmp = getname(filename);
-	if (IS_ERR(tmp))
-		return PTR_ERR(tmp);
+        tmp = getname(filename);
+        if (IS_ERR(tmp))
+                return PTR_ERR(tmp);
 
-	fd = get_unused_fd_flags(flags);
-	if (fd >= 0) {
-		struct file *f = do_filp_open(dfd, tmp, &op);
-		if (IS_ERR(f)) {
-			put_unused_fd(fd);
-			fd = PTR_ERR(f);
-		} else {
-			fsnotify_open(f);
-			fd_install(fd, f);
-		}
-	}
-	putname(tmp);
-	return fd;
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+retry:
+#endif
+        fd = get_unused_fd_flags(flags);
+        if (fd >= 0) {
+                struct file *f = do_filp_open(dfd, tmp, &op);
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+                if (!is_inode_open_redirect && f && !IS_ERR(f)) {
+                        struct inode *inode = file_inode(f);
+
+                        if (SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode)) {
+                                fake_filename =
+                                        susfs_open_redirect_spoof_do_sys_openat(inode);
+
+                                if (fake_filename && !IS_ERR(fake_filename)) {
+                                        is_inode_open_redirect = true;
+                                        filp_close(f, NULL);
+                                        putname(tmp);
+                                        tmp = fake_filename;
+                                        put_unused_fd(fd);
+                                        goto retry;
+                                }
+                        }
+                }
+#endif
+
+                if (IS_ERR(f)) {
+                        put_unused_fd(fd);
+                        fd = PTR_ERR(f);
+                } else {
+                        fsnotify_open(f);
+                        fd_install(fd, f);
+                }
+        }
+        putname(tmp);
+        return fd;
 }
 
 SYSCALL_DEFINE3(open, const char __user *, filename, int, flags, umode_t, mode)
