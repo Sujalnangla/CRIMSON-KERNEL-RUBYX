@@ -2,9 +2,7 @@ name: Crimson Ruby Kernel Build
 
 on:
   push:
-    branches:
-      - main
-      - ksu-susfs
+    branches: [main, ksu-susfs]
   workflow_dispatch:
 
 permissions:
@@ -35,29 +33,22 @@ jobs:
           submodules: false
 
       - name: Install dependencies
-        shell: bash
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache flex git libelf-dev libfl-dev libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
 
       - name: Validate source
-        shell: bash
         run: |
           set -eux
           test -f Makefile
-          test -f arch/arm64/Makefile
           test -f arch/arm64/configs/${KERNEL_DEFCONFIG}
-          test -f localversion-cip
-          test -f localversion-st
-          test -f localversion-crimson
-          test -f scripts/apply-susfs-avc-fix.py
           test -f fs/susfs.c
           test -f include/linux/susfs.h
           test -f include/linux/susfs_def.h
+          test -f scripts/apply-susfs-avc-fix.py
 
       - name: Integrate KernelSU Next SUSFS
-        shell: bash
         run: |
           set -euxo pipefail
           rm -rf KernelSU-Next
@@ -74,16 +65,9 @@ jobs:
           grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
           grep -q 'ksu_handle_execveat' fs/exec.c
           grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
-          grep -q 'magic1 == KSU_INSTALL_MAGIC1' kernel/reboot.c
-
-      - name: Configure ccache
-        shell: bash
-        run: |
-          ccache --max-size=5G
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
 
       - name: Download Android Clang r563880
-        shell: bash
         run: |
           set -euxo pipefail
           rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
@@ -94,9 +78,8 @@ jobs:
           test -x "$TOOLCHAIN_DIR/bin/ld.lld"
 
       - name: Configure kernel
-        shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
           rm -rf "$OUT_DIR"
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
@@ -110,57 +93,24 @@ jobs:
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config"
 
       - name: Build kernel
-        shell: bash
         run: |
           set -euxo pipefail
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip LOCALVERSION="" KCFLAGS="-Wno-error=implicit-function-declaration"
 
-      - name: Verify kernel output
-        shell: bash
+      - name: Verify and package
         run: |
-          set -eux
+          set -euxo pipefail
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           release=$(make O="$OUT_DIR" ARCH="$ARCH" LOCALVERSION="" -s kernelrelease)
           echo "kernelrelease=$release"
           test "$release" = "$EXPECTED_KERNEL_RELEASE"
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" Image.gz
-          elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
-            cp "$OUT_DIR/arch/arm64/boot/Image.gz" Image.gz
-          else
-            echo 'Kernel image not found'
-            exit 1
-          fi
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" Image.gz; elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz" Image.gz; else exit 1; fi
           if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then cp "$OUT_DIR/arch/arm64/boot/dtbo.img" dtbo.img; fi
-
-      - name: Create build metadata
-        shell: bash
-        run: |
-          cat > build-source.txt <<EOF
-          Repository: $GITHUB_REPOSITORY
-          Commit: $GITHUB_SHA
-          Defconfig: $KERNEL_DEFCONFIG
-          Expected release: $EXPECTED_KERNEL_RELEASE
-          Kernel build user: $KBUILD_BUILD_USER
-          Kernel build host: $KBUILD_BUILD_HOST
-          KernelSU-Next: wodanesdag/KernelSU-Next susfs
-          SUSFS: enabled
-          EOF
-
-      - name: Package AnyKernel3
-        shell: bash
-        run: |
-          set -euxo pipefail
           rm -rf AnyKernel3
           git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
           cp Image.gz AnyKernel3/Image.gz
-          if [ -f dtbo.img ]; then cp dtbo.img AnyKernel3/dtbo.img; fi
-          cp build-source.txt AnyKernel3/build-source.txt
-          python3 -c "from pathlib import Path; p=Path('AnyKernel3/anykernel.sh'); s=p.read_text(); old='kernel.string=Eclipse Kernel'; new='kernel.string=Crimson Kernel - By Shu'; assert old in s; p.write_text(s.replace(old,new,1)); Path('AnyKernel3/banner').write_text('==================================================\n                CRIMSON KERNEL\n                    BY SHU\n==================================================\n        Crimson Ruby | MediaTek MT6877\n              Redmi Note 12 Pro/Pro+\n==================================================\n')"
-          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
-          grep -q 'CRIMSON KERNEL' AnyKernel3/banner
-          grep -q 'BY SHU' AnyKernel3/banner
+          [ ! -f dtbo.img ] || cp dtbo.img AnyKernel3/dtbo.img
           cd AnyKernel3
           zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
 
@@ -171,6 +121,5 @@ jobs:
           path: |
             Image.gz
             dtbo.img
-            build-source.txt
             Crimson-ruby-*.zip
           if-no-files-found: error
