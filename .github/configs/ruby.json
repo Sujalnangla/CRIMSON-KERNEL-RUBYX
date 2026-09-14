@@ -1,0 +1,39 @@
+[
+  {
+    "kernelSource": {
+      "name": "CRIMSON-KERNEL-RUBYX",
+      "repo": "https://github.com/Sujalnangla/CRIMSON-KERNEL-RUBYX",
+      "branch": "main",
+      "device": "ruby",
+      "defconfig": "ruby_defconfig"
+    },
+    "withKernelSU": "true",
+    "withSuSFS": "true",
+    "ccache": "true",
+    "AnyKernel3": {
+      "use": "true",
+      "repo": "https://github.com/osm0sis/AnyKernel3",
+      "branch": "master",
+      "release": "true"
+    },
+    "toolchains": [
+      {
+        "name": "proton-clang",
+        "repo": "https://github.com/kdrag0n/proton-clang",
+        "branch": "master",
+        "binPath": [
+          "bin"
+        ]
+      }
+    ],
+    "params": {
+      "ARCH": "arm64",
+      "CC": "clang",
+      "externalCommand": {
+        "CLANG_TRIPLE": "aarch64-linux-gnu-",
+        "CROSS_COMPILE": "aarch64-linux-android-",
+        "CROSS_COMPILE_ARM32": "arm-linux-androideabi-"
+      }
+    }
+  }
+]
