@@ -7,7 +7,7 @@ on:
   push:
     branches:
       - 'main'
-      - 'ksu susfs'
+      - 'ksu-susfs'
       
   workflow_dispatch:
 
