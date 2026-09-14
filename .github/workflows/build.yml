@@ -97,12 +97,13 @@ jobs:
         if: ${{ env.withKernelSU == 'true' && env.withSuSFS == 'true' }}
         run: |
           echo "" > .scmversion
+          rm -rf KernelSU-Next
           git clone -b susfs https://github.com/wodanesdag/KernelSU-Next.git
           bash KernelSU-Next/kernel/setup.sh susfs
           
           KSU_VER=$(cd KernelSU-Next && expr $(git rev-list --count HEAD) + 30200)
           echo "KERNELSU_NEXT_VERSION=v${KSU_VER}" >> $GITHUB_OUTPUT
-
+          
       - name: "👍 Make defconfig"
         working-directory: ${{ env.KERNEL_NAME }}
         env:
