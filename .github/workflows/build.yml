@@ -6,9 +6,9 @@ env:
 on:
   push:
     branches:
-      - 'lineage-23.2'
-      - 'eclipse-ksu-v2'
-      - 'susfs'
+      - 'main'
+      - 'ksu susfs'
+      
   workflow_dispatch:
 
 jobs:
