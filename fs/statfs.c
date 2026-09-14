@@ -9,6 +9,20 @@
 #include <linux/security.h>
 #include <linux/uaccess.h>
 #include <linux/compat.h>
+#ifdef CONFIG_KSU_SUSFS
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(
+        struct vfsmount *vfsmnt);
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+extern int susfs_open_redirect_spoof_vfs_statfs(
+        struct inode *inode, struct kstatfs *buf);
+#endif
+
+#include <linux/susfs_def.h>
+#include <linux/version.h>
+#endif
 #include "internal.h"
 
 static int flags_by_mnt(int mnt_flags)
@@ -71,7 +85,47 @@ int vfs_statfs(const struct path *path, struct kstatfs *buf)
 {
 	int error;
 
-	error = statfs_by_dentry(path->dentry, buf);
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+        {
+                struct inode *inode = path->dentry->d_inode;
+
+                if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
+                        if (!susfs_open_redirect_spoof_vfs_statfs(inode, buf))
+                                return 0;
+                }
+        }
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+        if (likely(susfs_is_current_proc_umounted() && path->mnt)) {
+                struct vfsmount *no_sus_vfsmnt;
+
+                no_sus_vfsmnt =
+                        susfs_get_non_sus_vfsmnt_from_vfsmnt(path->mnt);
+
+                if (no_sus_vfsmnt &&
+                    no_sus_vfsmnt != path->mnt) {
+                        error = statfs_by_dentry(
+                                no_sus_vfsmnt->mnt_root, buf);
+
+                        if (!error)
+                                buf->f_flags =
+                                        calculate_f_flags(no_sus_vfsmnt);
+
+                        dput(no_sus_vfsmnt->mnt_root);
+                        mntput(no_sus_vfsmnt);
+
+                        return error;
+                }
+
+                if (no_sus_vfsmnt) {
+                        dput(no_sus_vfsmnt->mnt_root);
+                        mntput(no_sus_vfsmnt);
+                }
+        }
+#endif
+
+        error = statfs_by_dentry(path->dentry, buf);
 	if (!error)
 		buf->f_flags = calculate_f_flags(path->mnt);
 	return error;

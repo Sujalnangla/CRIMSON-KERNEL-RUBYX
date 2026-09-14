@@ -26,6 +26,9 @@
 #include <linux/bootmem.h>
 #include <linux/task_work.h>
 #include <linux/sched/task.h>
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+#include <linux/susfs_def.h>
+#endif
 #include <linux/fs_context.h>
 
 #include "pnode.h"
@@ -3685,3 +3688,64 @@ const struct proc_ns_operations mntns_operations = {
 	.install	= mntns_install,
 	.owner		= mntns_owner,
 };
+
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+
+int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt)
+{
+        struct mount *mnt = orig_mnt;
+        int mnt_id;
+
+        lock_mount_hash();
+
+        for (; mnt && mnt->mnt_parent &&
+               mnt != mnt->mnt_parent &&
+               mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
+             mnt = mnt->mnt_parent)
+                ;
+
+        mnt_id = mnt ? mnt->mnt_id : 0;
+
+        unlock_mount_hash();
+
+        return mnt_id;
+}
+
+
+struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(
+        struct vfsmount *vfsmnt)
+{
+        struct mount *mnt = real_mount(vfsmnt);
+
+        lock_mount_hash();
+
+        for (; mnt && mnt->mnt_parent &&
+               mnt != mnt->mnt_parent &&
+               mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
+             mnt = mnt->mnt_parent)
+                ;
+
+        if (!mnt) {
+                unlock_mount_hash();
+                return NULL;
+        }
+
+        /*
+         * statfs.c releases both references after this helper
+         * returns, even when the original mount is returned.
+         */
+        mntget(&mnt->mnt);
+        dget(mnt->mnt.mnt_root);
+
+        if (mnt == real_mount(vfsmnt)) {
+                unlock_mount_hash();
+                return vfsmnt;
+        }
+
+        unlock_mount_hash();
+
+        return &mnt->mnt;
+}
+
+#endif /* CONFIG_KSU_SUS_MOUNT */

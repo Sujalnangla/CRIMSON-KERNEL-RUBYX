@@ -20,6 +20,10 @@
 #include <linux/uaccess.h>
 #include <linux/pkeys.h>
 
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+#include <linux/susfs_def.h>
+#endif
+
 #include <asm/elf.h>
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
@@ -360,6 +364,12 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		if (SUSFS_IS_INODE_SUS_MAP(inode))
+			return;
+#endif
+
 		dev = inode->i_sb->s_dev;
 		ino = inode->i_ino;
 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
@@ -845,6 +855,13 @@ static int show_smap(struct seq_file *m, void *v)
 	struct vm_area_struct *vma = v;
 	struct mem_size_stats mss;
 
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	if (vma->vm_file) {
+		if (SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+			return 0;
+	}
+#endif
+
 	memset(&mss, 0, sizeof(mss));
 
 	smap_gather_stats(vma, &mss);
@@ -902,7 +919,16 @@ static int show_smaps_rollup(struct seq_file *m, void *v)
 	hold_task_mempolicy(priv);
 
 	for (vma = priv->mm->mmap; vma;) {
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		if (vma->vm_file &&
+		    SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+			goto bypass_orig_flow;
+#endif
+
 		smap_gather_stats(vma, &mss);
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+bypass_orig_flow:
+#endif
 		last_vma_end = vma->vm_end;
 
 		/*
@@ -1664,7 +1690,26 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 		ret = mmap_read_lock_killable(mm);
 		if (ret)
 			goto out_free;
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		{
+			struct vm_area_struct *vma;
+
+			vma = find_vma(mm, start_vaddr);
+			if (vma && start_vaddr < vma->vm_start)
+				vma = NULL;
+
+			if (vma && vma->vm_file &&
+			    SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+				goto bypass_sus_map;
+		}
+#endif
+
 		ret = walk_page_range(start_vaddr, end, &pagemap_walk);
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+bypass_sus_map:
+#endif
 		mmap_read_unlock(mm);
 		start_vaddr = end;
 
