@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Crimson build parser test
+    name: Crimson build dependency test
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout source
@@ -26,3 +26,43 @@ jobs:
           echo "Commit: $GITHUB_SHA"
           test -f Makefile
           test -f arch/arm64/configs/ruby_defconfig
+
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            curl \
+            flex \
+            git \
+            libelf-dev \
+            libfl-dev \
+            libncurses-dev \
+            libssl-dev \
+            lz4 \
+            python3 \
+            rsync \
+            unzip \
+            wget \
+            xz-utils \
+            zip \
+            zstd
+
+      - name: Verify dependencies
+        run: |
+          set -euxo pipefail
+          command -v make
+          command -v bc
+          command -v bison
+          command -v flex
+          command -v ccache
+          command -v python3
+          command -v rsync
+          command -v unzip
+          command -v zip
+          command -v zstd
+          echo "Build dependencies are ready"
