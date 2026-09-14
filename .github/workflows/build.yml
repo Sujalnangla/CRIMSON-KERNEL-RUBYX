@@ -1,238 +1,136 @@
-name: "Build Kernel"
-
-env:
-  OUT_DIR: "${{ github.workspace }}/out"
+name: Build Kernel
 
 on:
   push:
-    branches:
-      - 'lineage-23.2'
-      - 'eclipse-ksu-v2'
-      - 'susfs'
+    branches: [ksu-susfs, main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  ARCH: arm64
+  OUT_DIR: ${{ github.workspace }}/out
+  KERNEL_DEFCONFIG: ruby_defconfig
+  KSU_NEXT_REPO: https://github.com/wodanesdag/KernelSU-Next.git
+  KSU_NEXT_REF: f110cddc07e27b21ad77c6c31261660efb25dce4
+  TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
+  TOOLCHAIN_DIR: clang
+  ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
+  ANYKERNEL_BRANCH: eclipse-v2
+  EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-Crimson-ruby-st19
+  KBUILD_BUILD_USER: Shu
+  KBUILD_BUILD_HOST: Crimson-Ruby
+
 jobs:
-  Set-repos:
-    name: "🐂 Parse configs.json"
+  build:
+    name: Build Crimson Ruby KSU/SUSFS kernel
     runs-on: ubuntu-24.04
-    outputs:
-      repos: ${{ steps.generate-matrix.outputs.repos }}
-      builddate: ${{ steps.generate-builddate.outputs.builddate }}
+    timeout-minutes: 180
     steps:
-      - name: "😄 Checkout"
+      - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
 
-      - name: "😆 Generate Matrix"
-        id: generate-matrix
+      - name: Install dependencies
         run: |
-          echo "repos<<EOF" >> $GITHUB_OUTPUT
-          jq -s '[.[][]]' .github/configs/*.json >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-      - name: "⏰ Set builddate"
-        id: generate-builddate
-        run: echo "builddate=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
-
-  Build-Kernel:
-    name: "🐎 Build kernel"
-    runs-on: ubuntu-24.04
-    needs:
-      - Set-repos
-    strategy:
-      max-parallel: 4
-      fail-fast: false
-      matrix:
-        repos: ${{ fromJSON(needs.Set-repos.outputs.repos) }}
-    env:
-      WORKSPACE: ${{ github.workspace }}
-
-      builddate: "${{ needs.Set-repos.outputs.builddate }}"
-
-      KERNEL_NAME: ${{ matrix.repos.kernelSource.name }}
-      KERNEL_REPO: ${{ matrix.repos.kernelSource.repo }}
-      KERNEL_BRANCH: ${{ matrix.repos.kernelSource.branch }}
-      KERNEL_DEVICE: ${{ matrix.repos.kernelSource.device }}
-
-      DEFCONFIG_NAME: ${{ matrix.repos.kernelSource.defconfig }}
-
-      withKernelSU: ${{ matrix.repos.withKernelSU }}
-      withSuSFS: ${{ matrix.repos.withSuSFS }}
-      ccache: ${{ matrix.repos.ccache }}
-      useAnykernel: ${{ matrix.repos.AnyKernel3.use }}
-      release: ${{ matrix.repos.AnyKernel3.release }}
-    steps:
-      - name: "⭐ Install prerequisites"
-        run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
-          sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache jq
-          sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar
-          sudo apt-get install -y checkinstall libncursesw5-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev libffi-dev python3 python-is-python3 python3-pip
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libfl-dev libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
 
-      - name: "🚄 Create cache key from `repos`"
-        if: ${{ env.ccache == 'true' }}
-        id: ccache_key
+      - name: Validate source
         run: |
-          ccache -o compression=false -o cache_dir=$HOME/.ccache
-          echo "CACHE_KEY=$(echo -n '${{ toJSON(matrix.repos) }}' | base64 -w 0 | cut -c -48)" >> $GITHUB_OUTPUT
+          set -euxo pipefail
+          test -f Makefile
+          test -f arch/arm64/configs/${KERNEL_DEFCONFIG}
+          test -f fs/susfs.c
+          test -f include/linux/susfs.h
+          test -f include/linux/susfs_def.h
+          test -f localversion-cip
+          test -f localversion-st
+          test -f localversion-crimson
+          grep -q '^obj-$(CONFIG_KSU) += kernelsu/$' drivers/Makefile
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
 
-      - name: "🚅 Cache ccache files"
-        if: ${{ env.ccache == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.ccache
-            ${{ env.OUT_DIR }}
-          key: ccache-${{ env.KERNEL_NAME }}-${{ steps.ccache_key.outputs.CACHE_KEY }}-${{ env.builddate }}
-          restore-keys: |
-            ccache-${{ env.KERNEL_NAME }}-${{ steps.ccache_key.outputs.CACHE_KEY }}-${{ env.builddate }}
-
-      - name: "⏰ Setup Anykernel3"
-        env:
-          params: "${{ toJSON(matrix.repos.AnyKernel3) }}"
+      - name: Integrate KernelSU Next SUSFS
         run: |
-          ANYKERNEL_REPO=$(echo $params | jq -r ".repo")
-          ANYKERNEL_BRANCH=$(echo $params | jq -r ".branch")
-          git clone --recursive --depth=1 -j $(nproc) --branch $ANYKERNEL_BRANCH $ANYKERNEL_REPO AnyKernel3
-          echo "🤔 Setup Anykernel3 => ($ANYKERNEL_REPO)"
-
-      - name: "🌟 Clone kernel source => (${{ env.KERNEL_REPO }})"
-        run: |
-          git clone --recursive --depth=1 -j $(nproc) --branch $KERNEL_BRANCH $KERNEL_REPO $KERNEL_NAME
-          echo -e "\n⚠️ Kernel is at commit: $(git -C $KERNEL_NAME rev-parse HEAD)\n"
-          echo "🤔 Clone kernel source => ($KERNEL_REPO)"         
-
-      - name: "💫 Get toolchains"
-        env:
-          toolchains: "${{ toJSON(matrix.repos.toolchains) }}"
-        run: |
-          toolchains_num="$(echo $toolchains | jq 'length')"
-          echo "🤔 There is $toolchains_num defined toolchains."
-          for ((i=0;i<toolchains_num;i++)); do
-            toolchain_name=$(echo $toolchains | jq -r ".[$i].name")
-            toolchain_repo=$(echo $toolchains | jq -r ".[$i].repo")
-            toolchain_branch=$(echo $toolchains | jq -r ".[$i].branch")
-            toolchain_url=$(echo $toolchains | jq -r ".[$i].url")
-
-            if [ -z "${toolchain_url:-}" ] || [ "$toolchain_url" = "null" ];  then
-              git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
-              echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
-            else
-              wget "$toolchain_url"
-              filename="${toolchain_url##*/}"
-              mkdir -p $toolchain_name
-              case "$filename" in
-                *.zip) unzip -d $toolchain_name "$filename" ;;
-                *.tar) tar xvf "$filename" -C $toolchain_name ;;
-                *.tar.gz) tar zxvf "$filename" -C $toolchain_name ;;
-                *.rar) unrar x "$filename" $toolchain_name ;;
-                *) echo "unknown file type: $filename" ;;
-              esac
-            fi
-
-            jq -r ".[$i].binPath[] | tostring" <<< "$toolchains" | while read -r bin_path; do
-              echo "$WORKSPACE/$toolchain_name/$bin_path" >> $GITHUB_PATH
-            done
-          done
-
-      - name: "😎 Set args"
-        id: generate-args
-        env:
-          params: "${{ toJSON(matrix.repos.params) }}"
-          THREAD: $(nproc --all)
-        run: |
-          echo "🤔 PATH Variable: $PATH"
-
-          ARCH=$(echo $params | jq -r ".ARCH")
-          CC=$(echo $params | jq -r ".CC")
-
-          args="-j${{ env.THREAD }}"
-          if [ -n "${{ env.OUT_DIR }}" ]; then
-            mkdir -p ${{ env.OUT_DIR }} && args="$args O=${{ env.OUT_DIR }}"
-          fi
-          if [ -n "$ARCH" ]; then
-            args="$args ARCH=$ARCH"
-          fi
-          if [ -n "$CC" ]; then
-            if [[ "$CC" == *"/"* ]]; then
-              CC=${{ env.WORKSPACE }}/$CC
-            fi
-            if [ ${{ env.ccache }} = true ]; then
-              args="$args CC=\"ccache $CC\""
-            else
-              args="$args CC=$CC"
-            fi
-          fi
-          while read -r externalCommand; do
-            key=$(echo "$externalCommand" | cut -d= -f1)
-            value=$(echo "$externalCommand" | cut -d= -f2)
-            if [[ "$value" == *"/"* ]]; then
-              value="${{ env.WORKSPACE }}/$value"
-            fi
-            args="$args $key=$value"
-          done < <(jq -r '.externalCommand | to_entries[] | "\(.key)=\(.value)"' <<< "$params")
-
-          echo "🤔 $args"
-          echo "ARCH=$ARCH" >> $GITHUB_OUTPUT
-          echo "args=$args" >> $GITHUB_OUTPUT
-
-      - name: "😋 Integrate KernelSU Next"
-        id: integrate-kernelsu-next
-        working-directory: ${{ env.KERNEL_NAME }}
-        env:
-          arch: ${{ steps.generate-args.outputs.ARCH }}
-        if: ${{ env.withKernelSU == 'true' && env.withSuSFS == 'true'}}
-        run: |
-          echo "" > .scmversion
-          git clone -b susfs https://github.com/wodanesdag/KernelSU-Next.git
+          set -euxo pipefail
+          rm -rf KernelSU-Next
+          git clone --depth=1 "$KSU_NEXT_REPO" KernelSU-Next
+          git -C KernelSU-Next fetch --depth=1 origin "$KSU_NEXT_REF"
+          git -C KernelSU-Next checkout --detach "$KSU_NEXT_REF"
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSU_NEXT_REF"
           bash KernelSU-Next/kernel/setup.sh susfs
-          cd KernelSU-Next
-          KERNELSU_NEXT_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) + 30200)
-          echo -e "\n💡 KernelSU Next version: $KERNELSU_NEXT_VERSION\n"
-          echo -e "KERNELSU_NEXT_VERSION=$KERNELSU_NEXT_VERSION" >> $GITHUB_OUTPUT  
+          test -L drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
+          grep -q '^config KSU$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_SUSFS$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
 
-      - name: "👍 Make defconfig"
-        working-directory: ${{ env.KERNEL_NAME }}
-        env:
-          args: ${{ steps.generate-args.outputs.args }}
-          arch: ${{ steps.generate-args.outputs.ARCH }}
+      - name: Download Android Clang r563880
         run: |
-          echo "PATH Variable: $PATH"
-          make ${{ env.args }} ${{ env.DEFCONFIG_NAME }}
+          set -euxo pipefail
+          rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
+          mkdir -p "$TOOLCHAIN_DIR"
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
+          tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
+          test -x "$TOOLCHAIN_DIR/bin/clang"
+          test -x "$TOOLCHAIN_DIR/bin/ld.lld"
 
-      - name: "🎶 Build kernel"
-        working-directory: ${{ env.KERNEL_NAME }}
-        env:
-          args: ${{ steps.generate-args.outputs.args }}
+      - name: Configure kernel
         run: |
-          echo "PATH Variable: $PATH"
-          make ${{ env.args }}
+          set -euxo pipefail
+          rm -rf "$OUT_DIR"
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
+          ./scripts/config --file "$OUT_DIR/.config" --enable KSU --enable KSU_SUSFS --enable KSU_MANUAL_HOOK --disable KPROBES
+          sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
+          sed -i '/^CONFIG_LOCALVERSION_AUTO=/d' "$OUT_DIR/.config"
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> "$OUT_DIR/.config"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -q '^CONFIG_KSU=y$' "$OUT_DIR/.config"
+          grep -q '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config"
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config"
+          grep -q '^# CONFIG_KPROBES is not set$' "$OUT_DIR/.config"
 
-      - name: "❤️ Pack AnyKernel3.zip"
-        if: ${{ env.useAnykernel == 'true' }}
-        env:
-          arch: ${{ steps.generate-args.outputs.ARCH }}
-          anykernel: "${{ env.WORKSPACE }}/${{ env.KERNEL_DEVICE }}-Next-SuSFS-${{ steps.integrate-kernelsu-next.outputs.KERNELSU_NEXT_VERSION }}-${{ env.builddate }}"
+      - name: Build kernel
         run: |
-          ls -al
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          export USE_CCACHE=1
+          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip LOCALVERSION="" KCFLAGS="-Wno-error=implicit-function-declaration"
 
-          if [ -e "${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/Image.gz-dtb" ]; then
-            cp -f ${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/Image.gz-dtb ./AnyKernel3/Image.gz
-          elif [ -e "${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/Image.gz" ]; then
-            cp -f ${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/Image.gz ./AnyKernel3/Image.gz
-          fi
-          if [ -e "${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/dtbo" ]; then
-            cp -f ${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/dtbo ./AnyKernel3/
-          fi
-          if [ -e "${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/dtbo.img" ]; then
-            cp -f ${{ env.OUT_DIR }}/arch/${{ env.arch }}/boot/dtbo.img ./AnyKernel3/
-          fi
+      - name: Verify and package AnyKernel3
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          release=$(make O="$OUT_DIR" ARCH="$ARCH" LOCALVERSION="" -s kernelrelease)
+          test "$release" = "$EXPECTED_KERNEL_RELEASE"
+          rm -rf AnyKernel3
+          git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" AnyKernel3/Image.gz; elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz" AnyKernel3/Image.gz; else exit 1; fi
+          [ ! -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ] || cp "$OUT_DIR/arch/arm64/boot/dtbo.img" AnyKernel3/dtbo.img
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('AnyKernel3/anykernel.sh')
+          t=p.read_text()
+          t=t.replace('kernel.string=Eclipse Kernel','kernel.string=Crimson Kernel - By Shu',1)
+          p.write_text(t)
+          Path('AnyKernel3/banner').write_text('CRIMSON KERNEL\nBy Shu\nCrimson Ruby | MT6877\n')
+          PY
+          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
+          grep -q 'CRIMSON KERNEL' AnyKernel3/banner
+          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*')
 
-          cd AnyKernel3/
-          zip -q -r "${{ env.anykernel }}.zip" *
-
-      - name: "💾 Upload AnyKernel3 image => (${{ env.builddate }})"
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
-        if: ${{ env.useAnykernel == 'true' }}
         with:
-          name: "${{ env.KERNEL_DEVICE }}-Next-SuSFS-${{ steps.integrate-kernelsu-next.outputs.KERNELSU_NEXT_VERSION }}-${{ env.builddate }}"
-          path: AnyKernel3/*
+          name: Crimson-ruby-${{ github.run_number }}
+          path: |
+            AnyKernel3/Image.gz
+            AnyKernel3/dtbo.img
+            Crimson-ruby-*.zip
+          if-no-files-found: error
