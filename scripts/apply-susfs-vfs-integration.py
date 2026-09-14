@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Apply SUSFS v2.2.0 VFS/proc integration without replacing diverged Crimson files."""
+from pathlib import Path
+import subprocess
+import tempfile
+
+RAJDEEP_REPO = "https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git"
+RAJDEEP_COMMIT = "d07fe787f959464a653596f3a23b5e88c4510644"
+RAJDEEP_PARENT = "bff45a69404e25fd5a1904ffe11ab8c1e6ce1604"
+
+CLEAN_FILES = [
+    "fs/readdir.c", "fs/stat.c", "fs/statfs.c",
+    "fs/proc/cmdline.c", "fs/proc/fd.c", "fs/proc/task_mmu.c",
+    "fs/proc_namespace.c", "fs/notify/fdinfo.c",
+    "kernel/sys.c", "kernel/kallsyms.c",
+]
+
+
+def run(*args, cwd=None):
+    return subprocess.run(args, cwd=cwd, check=True)
+
+
+def apply_file_patch(repo, target, path, td):
+    patch = subprocess.run(
+        ["git", "diff", "--full-index", RAJDEEP_PARENT, RAJDEEP_COMMIT, "--", path],
+        cwd=repo, check=True, text=True, stdout=subprocess.PIPE,
+    ).stdout
+    if not patch.strip():
+        raise SystemExit(f"SUSFS integration: empty patch for {path}")
+    patch_path = Path(td) / (path.replace("/", "_") + ".patch")
+    patch_path.write_text(patch)
+    check = subprocess.run(
+        ["git", "apply", "--check", "--whitespace=nowarn", str(patch_path)],
+        cwd=target, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    if check.returncode != 0:
+        raise SystemExit(f"SUSFS integration: clean patch failed for {path}\n{check.stdout}")
+    run("git", "apply", "--whitespace=nowarn", str(patch_path), cwd=target)
+    print(f"SUSFS integration: {path} applied")
+
+
+def insert_once(text, anchor, addition, label):
+    if addition.strip() in text:
+        return text
+    count = text.count(anchor)
+    if count != 1:
+        raise SystemExit(f"SUSFS integration: {label}: expected one anchor, found {count}")
+    return text.replace(anchor, addition + anchor, 1)
+
+
+def patch_namei(target):
+    path = target / "fs/namei.c"
+    text = path.read_text()
+    text = insert_once(text, "#include <linux/build_bug.h>\n",
+        "#if defined(CONFIG_KSU_SUSFS_SUS_PATH)\n#include <linux/susfs_def.h>\n#endif\n",
+        "namei include")
+    text = insert_once(text, "#include <trace/events/namei.h>\n",
+        "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\nextern bool susfs_is_inode_sus_path(struct inode *inode);\n#endif\n\n",
+        "namei extern")
+    marker = "\tif (unlikely(!dentry))\n"
+    start = text.find("static struct dentry *lookup_dcache(")
+    if start < 0:
+        raise SystemExit("SUSFS integration: lookup_dcache not found")
+    pos = text.find(marker, start)
+    if pos < 0:
+        raise SystemExit("SUSFS integration: lookup_dcache anchor not found")
+    if "susfs_is_inode_sus_path(dentry->d_inode)" not in text[start:pos]:
+        hook = (
+            "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+            "\tif (dentry && !IS_ERR(dentry) && dentry->d_inode &&\n"
+            "\t\tsusfs_is_inode_sus_path(dentry->d_inode)) {\n"
+            "\t\tif (d_in_lookup(dentry))\n"
+            "\t\t\td_lookup_done(dentry);\n"
+            "\t\tdput(dentry);\n"
+            "\t\treturn NULL;\n"
+            "\t}\n"
+            "#endif\n"
+        )
+        text = text[:pos] + hook + text[pos:]
+    path.write_text(text)
+    print("SUSFS integration: fs/namei.c targeted SUS_PATH lookup hook applied")
+
+
+def patch_open(target):
+    path = target / "fs/open.c"
+    text = path.read_text()
+    text = insert_once(text, '#include <linux/compat.h>\n',
+        '#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n#include <linux/susfs_def.h>\n#endif\n',
+        "open SUSFS definitions include")
+    text = insert_once(text, '#include <linux/compat.h>\n',
+        '#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nextern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);\n#endif\n\n',
+        "open extern")
+    start = text.find("long do_sys_open(")
+    if start < 0:
+        raise SystemExit("SUSFS integration: Crimson do_sys_open not found")
+    end = text.find("SYSCALL_DEFINE3(open", start)
+    if end < 0:
+        raise SystemExit("SUSFS integration: do_sys_open end not found")
+    body = text[start:end]
+    if "bool is_inode_open_redirect = false;" not in body:
+        decl_anchor = "\tstruct filename *tmp;\n"
+        dpos = text.find(decl_anchor, start)
+        if dpos < 0 or dpos >= end:
+            raise SystemExit("SUSFS integration: do_sys_open declaration anchor not found")
+        text = text[:dpos + len(decl_anchor)] + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tbool is_inode_open_redirect = false;\n#endif\n" + text[dpos + len(decl_anchor):]
+    marker = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);\n"
+    pos = text.find(marker, start)
+    if pos < 0 or pos >= text.find("SYSCALL_DEFINE3(open", start):
+        raise SystemExit("SUSFS integration: do_sys_open filp_open anchor not found")
+    if "susfs_open_redirect_spoof_do_sys_openat" not in text[start:text.find("SYSCALL_DEFINE3(open", start)]:
+        hook = (
+            "#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n"
+            "\t\tif (!is_inode_open_redirect && f && !IS_ERR(f) &&\n"
+            "\t\t    SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(file_inode(f))) {\n"
+            "\t\t\tstruct filename *fake_filename =\n"
+            "\t\t\t\tsusfs_open_redirect_spoof_do_sys_openat(file_inode(f));\n"
+            "\t\t\tif (fake_filename && !IS_ERR(fake_filename)) {\n"
+            "\t\t\t\tis_inode_open_redirect = true;\n"
+            "\t\t\t\tfilp_close(f, NULL);\n"
+            "\t\t\t\tput_unused_fd(fd);\n"
+            "\t\t\t\tputname(tmp);\n"
+            "\t\t\t\ttmp = fake_filename;\n"
+            "\t\t\t\tgoto retry;\n"
+            "\t\t\t}\n"
+            "\t\t}\n"
+            "#endif\n"
+        )
+        text = text[:pos + len(marker)] + hook + text[pos + len(marker):]
+        retry_anchor = "\tfd = get_unused_fd_flags(flags);\n"
+        rpos = text.find(retry_anchor, start)
+        if rpos < 0 or rpos >= text.find("SYSCALL_DEFINE3(open", start):
+            raise SystemExit("SUSFS integration: do_sys_open retry anchor not found")
+        text = text[:rpos] + "retry:\n" + text[rpos:]
+    path.write_text(text)
+    print("SUSFS integration: fs/open.c targeted OPEN_REDIRECT hook applied")
+
+
+def patch_namespace(target):
+    path = target / "fs/namespace.c"
+    text = path.read_text()
+    text = insert_once(text, '#include <linux/sched/task.h>\n',
+        '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux/susfs_def.h>\n#endif\n',
+        "namespace SUSFS definitions include")
+    if "susfs_get_non_sus_mnt_id_from_mnt" not in text:
+        helper = r'''
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+/* Return the first non-SUS mount in the parent chain. */
+int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt)
+{
+	struct mount *mnt = orig_mnt;
+	int mnt_id;
+
+	lock_mount_hash();
+	for (; mnt && mnt->mnt_parent && mnt != mnt->mnt_parent &&
+	       mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
+	     mnt = mnt->mnt_parent)
+		;
+	mnt_id = mnt ? mnt->mnt_id : 0;
+	unlock_mount_hash();
+	return mnt_id;
+}
+
+/* Return the first non-SUS vfsmount and acquire the mount and root-dentry
+ * references expected by the statfs caller before it releases them. */
+struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt)
+{
+	struct mount *mnt = real_mount(vfsmnt);
+
+	lock_mount_hash();
+	for (; mnt && mnt->mnt_parent && mnt != mnt->mnt_parent &&
+	       mnt->mnt_id >= DEFAULT_KSU_MNT_ID;
+	     mnt = mnt->mnt_parent)
+		;
+	if (!mnt) {
+		unlock_mount_hash();
+		return NULL;
+	}
+
+	/* The caller always dput()/mntput()s both objects, so both references
+	 * must be acquired even when the first non-SUS mount is the original. */
+	mntget(&mnt->mnt);
+	dget(mnt->mnt.mnt_root);
+	if (mnt == real_mount(vfsmnt)) {
+		unlock_mount_hash();
+		return vfsmnt;
+	}
+
+	unlock_mount_hash();
+	return &mnt->mnt;
+}
+#endif /* CONFIG_KSU_SUSFS_SUS_MOUNT */
+'''
+        text += helper
+    path.write_text(text)
+    print("SUSFS integration: fs/namespace.c mount helper symbols applied")
+
+
+def main():
+    target = Path.cwd()
+    defconfig = target / "arch/arm64/configs/ruby_defconfig"
+    if not defconfig.exists():
+        raise SystemExit("ruby_defconfig not found")
+    cfg = defconfig.read_text()
+    if "CONFIG_KPROBES=y" in cfg:
+        defconfig.write_text(cfg.replace("CONFIG_KPROBES=y", "# CONFIG_KPROBES is not set", 1))
+        print("defconfig: CONFIG_KPROBES disabled")
+    elif "# CONFIG_KPROBES is not set" in cfg:
+        print("defconfig: CONFIG_KPROBES already disabled")
+    else:
+        raise SystemExit("defconfig: KPROBES setting not found")
+
+    with tempfile.TemporaryDirectory(prefix="crimson-susfs-") as td:
+        repo = Path(td) / "rajdeep"
+        run("git", "init", "-q", str(repo))
+        run("git", "remote", "add", "origin", RAJDEEP_REPO, cwd=repo)
+        run("git", "fetch", "--no-tags", "--depth=1", "origin", RAJDEEP_COMMIT, RAJDEEP_PARENT, cwd=repo)
+        for path in CLEAN_FILES:
+            apply_file_patch(repo, target, path, td)
+
+    patch_namei(target)
+    patch_open(target)
+    patch_namespace(target)
+    print("SUSFS integration: fs/proc/base.c remains intentionally unmodified because its Crimson layout diverges from Rajdeep's proc readlink implementation")
+    print("SUSFS v2.2.0 targeted VFS/proc integration applied")
+
+
+if __name__ == "__main__":
+    main()
