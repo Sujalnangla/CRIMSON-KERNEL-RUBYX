@@ -6,8 +6,8 @@ env:
 on:
   push:
     branches:
-      - 'ksu-susfs'
       - 'main'
+      - 'ksu-susfs'
   workflow_dispatch:
 
 jobs:
