@@ -1,0 +1,14 @@
+name: Crimson Actions Probe
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Crimson Actions probe OK"
