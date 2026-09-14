@@ -1,0 +1,86 @@
+name: Import Rajdeep SUSFS/KSU files
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Crimson
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Import Rajdeep files and build zip
+        env:
+          RAJDEEP_SHA: d07fe787f959464a653596f3a23b5e88c4510644
+        run: |
+          set -euo pipefail
+          git clone --no-checkout https://github.com/rajdeep-3305/kernel_xiaomi_mt6877.git rajdeep-src
+          git -C rajdeep-src checkout --detach "$RAJDEEP_SHA"
+
+          files=(
+            arch/arm64/configs/ruby_defconfig
+            drivers/input/input.c
+            fs/Makefile
+            fs/exec.c
+            fs/internal.h
+            fs/namei.c
+            fs/namespace.c
+            fs/notify/fdinfo.c
+            fs/open.c
+            fs/proc/base.c
+            fs/proc/cmdline.c
+            fs/proc/fd.c
+            fs/proc/task_mmu.c
+            fs/proc_namespace.c
+            fs/read_write.c
+            fs/readdir.c
+            fs/stat.c
+            fs/statfs.c
+            fs/susfs.c
+            include/linux/seccomp.h
+            include/linux/susfs.h
+            include/linux/susfs_def.h
+            kernel/kallsyms.c
+            kernel/reboot.c
+            kernel/sys.c
+            security/selinux/avc.c
+            .github/workflows/build.yml
+            .github/workflows/release.yml
+          )
+
+          rm -rf /tmp/rajdeep-susfs-ksu-files
+          mkdir -p /tmp/rajdeep-susfs-ksu-files
+          for f in "${files[@]}"; do
+            mkdir -p "$(dirname "$f")"
+            cp "rajdeep-src/$f" "$f"
+            mkdir -p "/tmp/rajdeep-susfs-ksu-files/$(dirname "$f")"
+            cp "rajdeep-src/$f" "/tmp/rajdeep-susfs-ksu-files/$f"
+          done
+
+          cd /tmp
+          zip -qr rajdeep-susfs-ksu-files.zip rajdeep-susfs-ksu-files
+
+      - name: Upload Rajdeep file bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rajdeep-susfs-ksu-files
+          path: /tmp/rajdeep-susfs-ksu-files.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit imported files and remove temporary workflow
+        run: |
+          set -euo pipefail
+          rm -f "$GITHUB_WORKSPACE/.github/workflows/_import-rajdeep-susfs.yml"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/workflows/build.yml .github/workflows/release.yml arch/arm64/configs/ruby_defconfig drivers/input/input.c fs include/linux kernel security/selinux/avc.c
+          git commit -m "fs / drivers: import Rajdeep SUSFS 2.2.0 and KSU integration"
+          git push origin HEAD:main
