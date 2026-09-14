@@ -1,0 +1,179 @@
+name: Crimson Ruby Kernel Build
+
+on:
+  push:
+    branches: [main, ksu-susfs]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ARCH: arm64
+  OUT_DIR: ${{ github.workspace }}/out
+  KERNEL_DEFCONFIG: ruby_defconfig
+  KSU_NEXT_REPO: https://github.com/wodanesdag/KernelSU-Next.git
+  KSU_NEXT_REF: f110cddc07e27b21ad77c6c31261660efb25dce4
+  TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
+  TOOLCHAIN_DIR: clang
+  ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
+  ANYKERNEL_BRANCH: eclipse-v2
+  EXPECTED_KERNEL_RELEASE: 4.19.325-cip135-Crimson-ruby-st19
+  KBUILD_BUILD_USER: Shu
+  KBUILD_BUILD_HOST: Crimson-Ruby
+
+jobs:
+  build:
+    name: Build Crimson Ruby kernel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libfl-dev libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
+
+      - name: Validate source
+        run: |
+          set -euxo pipefail
+          test -f Makefile
+          test -f arch/arm64/configs/${KERNEL_DEFCONFIG}
+          test -f fs/susfs.c
+          test -f include/linux/susfs.h
+          test -f include/linux/susfs_def.h
+          test -f scripts/apply-susfs-avc-fix.py
+          test -f localversion-cip
+          test -f localversion-st
+          test -f localversion-crimson
+          grep -q '^# CONFIG_KPROBES is not set$' arch/arm64/configs/${KERNEL_DEFCONFIG}
+          grep -q '^obj-$(CONFIG_KSU) += kernelsu/$' drivers/Makefile
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
+
+      - name: Integrate KernelSU Next SUSFS
+        run: |
+          set -euxo pipefail
+          rm -rf KernelSU-Next
+          git clone --depth=1 "$KSU_NEXT_REPO" KernelSU-Next
+          git -C KernelSU-Next fetch --depth=1 origin "$KSU_NEXT_REF"
+          git -C KernelSU-Next checkout --detach "$KSU_NEXT_REF"
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSU_NEXT_REF"
+          bash KernelSU-Next/kernel/setup.sh susfs
+          test -L drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
+          grep -q '^config KSU$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_SUSFS$' drivers/kernelsu/Kconfig
+          grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
+          python3 scripts/apply-susfs-avc-fix.py
+          grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+
+      - name: Configure ccache
+        run: |
+          set -euxo pipefail
+          ccache --max-size=5G
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+
+      - name: Download Android Clang r563880
+        run: |
+          set -euxo pipefail
+          rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
+          mkdir -p "$TOOLCHAIN_DIR"
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
+          tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
+          test -x "$TOOLCHAIN_DIR/bin/clang"
+          test -x "$TOOLCHAIN_DIR/bin/ld.lld"
+
+      - name: Configure kernel
+        run: |
+          set -euxo pipefail
+          rm -rf "$OUT_DIR"
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
+          ./scripts/config --file "$OUT_DIR/.config" --enable KSU --enable KSU_SUSFS --enable KSU_MANUAL_HOOK --disable KPROBES
+          sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
+          sed -i '/^CONFIG_LOCALVERSION_AUTO=/d' "$OUT_DIR/.config"
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> "$OUT_DIR/.config"
+          make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -q '^CONFIG_KSU=y$' "$OUT_DIR/.config"
+          grep -q '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config"
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config"
+          grep -q '^# CONFIG_KPROBES is not set$' "$OUT_DIR/.config"
+
+      - name: Verify manual hooks and SUSFS integration
+        run: |
+          set -euxo pipefail
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+          grep -q 'ksu_handle_faccessat' fs/open.c
+          grep -q 'susfs_get_non_sus_vfsmnt_from_vfsmnt' fs/namespace.c
+          grep -q 'susfs_get_non_sus_mnt_id_from_mnt' fs/namespace.c
+          grep -q 'SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK' fs/open.c
+          grep -q 'SUSFS_SUS_PATH' fs/namei.c
+
+      - name: Build kernel
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          export USE_CCACHE=1
+          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip LOCALVERSION="" KCFLAGS="-Wno-error=implicit-function-declaration" Image.gz-dtb
+          test -s "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+
+      - name: Verify and package
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+          release=$(make O="$OUT_DIR" ARCH="$ARCH" LOCALVERSION="" -s kernelrelease)
+          echo "kernelrelease=$release"
+          test "$release" = "$EXPECTED_KERNEL_RELEASE"
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" Image.gz; elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz" Image.gz; else echo 'Kernel image not found'; exit 1; fi
+          if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then cp "$OUT_DIR/arch/arm64/boot/dtbo.img" dtbo.img; fi
+          rm -rf AnyKernel3
+          git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
+          test -f AnyKernel3/anykernel.sh
+          cp Image.gz AnyKernel3/Image.gz
+          [ ! -f dtbo.img ] || cp dtbo.img AnyKernel3/dtbo.img
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path('AnyKernel3/anykernel.sh')
+          text = script.read_text()
+          old = 'kernel.string=Eclipse Kernel'
+          new = 'kernel.string=Crimson Kernel - By Shu'
+          if old not in text:
+              raise SystemExit('Expected Eclipse AnyKernel branding was not found')
+          script.write_text(text.replace(old, new, 1))
+          banner = '''==================================================
+                CRIMSON KERNEL
+                    BY SHU
+==================================================
+        Crimson Ruby | MediaTek MT6877
+              Redmi Note 12 Pro/Pro+
+==================================================
+'''
+          Path('AnyKernel3/banner').write_text(banner)
+          PY
+          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
+          grep -q 'CRIMSON KERNEL' AnyKernel3/banner
+          grep -q 'BY SHU' AnyKernel3/banner
+          cd AnyKernel3
+          zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-ruby-${{ github.run_number }}
+          path: |
+            Image.gz
+            dtbo.img
+            Crimson-ruby-*.zip
+          if-no-files-found: error
