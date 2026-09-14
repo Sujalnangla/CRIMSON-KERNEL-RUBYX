@@ -12,6 +12,8 @@ env:
   ARCH: arm64
   OUT_DIR: ${{ github.workspace }}/out
   KERNEL_DEFCONFIG: ruby_defconfig
+  KSU_NEXT_REPO: https://github.com/wodanesdag/KernelSU-Next.git
+  KSU_NEXT_REF: f110cddc07e27b21ad77c6c31261660efb25dce4
   TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
   TOOLCHAIN_DIR: clang
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
@@ -51,12 +53,17 @@ jobs:
           test -f localversion-st
           test -f localversion-crimson
           grep -q '^# CONFIG_KPROBES is not set$' arch/arm64/configs/${KERNEL_DEFCONFIG}
+          grep -q '^obj-$(CONFIG_KSU) += kernelsu/$' drivers/Makefile
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
 
       - name: Integrate KernelSU Next SUSFS
         run: |
           set -euxo pipefail
           rm -rf KernelSU-Next
-          git clone --depth=1 -b susfs https://github.com/wodanesdag/KernelSU-Next.git KernelSU-Next
+          git clone --depth=1 "$KSU_NEXT_REPO" KernelSU-Next
+          git -C KernelSU-Next fetch --depth=1 origin "$KSU_NEXT_REF"
+          git -C KernelSU-Next checkout --detach "$KSU_NEXT_REF"
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSU_NEXT_REF"
           bash KernelSU-Next/kernel/setup.sh susfs
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
@@ -64,8 +71,6 @@ jobs:
           grep -q '^config KSU$' drivers/kernelsu/Kconfig
           grep -q '^config KSU_SUSFS$' drivers/kernelsu/Kconfig
           grep -q '^config KSU_MANUAL_HOOK$' drivers/kernelsu/Kconfig
-          grep -q '^obj-$(CONFIG_KSU) += kernelsu/$' drivers/Makefile
-          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs\.o$' fs/Makefile
           python3 scripts/apply-susfs-avc-fix.py
           grep -q 'bool susfs_is_avc_log_spoofing_enabled = false;' security/selinux/avc.c
           grep -q 'ksu_handle_execveat' fs/exec.c
@@ -104,6 +109,18 @@ jobs:
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config"
           grep -q '^# CONFIG_KPROBES is not set$' "$OUT_DIR/.config"
 
+      - name: Verify manual hooks and SUSFS integration
+        run: |
+          set -euxo pipefail
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_execveat_sucompat' fs/exec.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+          grep -q 'ksu_handle_faccessat' fs/open.c
+          grep -q 'susfs_get_non_sus_vfsmnt_from_vfsmnt' fs/namespace.c
+          grep -q 'susfs_get_non_sus_mnt_id_from_mnt' fs/namespace.c
+          grep -q 'SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK' fs/open.c
+          grep -q 'SUSFS_SUS_PATH' fs/namei.c
+
       - name: Build kernel
         run: |
           set -euxo pipefail
@@ -125,6 +142,28 @@ jobs:
           test -f AnyKernel3/anykernel.sh
           cp Image.gz AnyKernel3/Image.gz
           [ ! -f dtbo.img ] || cp dtbo.img AnyKernel3/dtbo.img
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path('AnyKernel3/anykernel.sh')
+          text = script.read_text()
+          old = 'kernel.string=Eclipse Kernel'
+          new = 'kernel.string=Crimson Kernel - By Shu'
+          if old not in text:
+              raise SystemExit('Expected Eclipse AnyKernel branding was not found')
+          script.write_text(text.replace(old, new, 1))
+          banner = '''==================================================
+                CRIMSON KERNEL
+                    BY SHU
+==================================================
+        Crimson Ruby | MediaTek MT6877
+              Redmi Note 12 Pro/Pro+
+==================================================
+'''
+          Path('AnyKernel3/banner').write_text(banner)
+          PY
+          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
+          grep -q 'CRIMSON KERNEL' AnyKernel3/banner
+          grep -q 'BY SHU' AnyKernel3/banner
           cd AnyKernel3
           zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
 
