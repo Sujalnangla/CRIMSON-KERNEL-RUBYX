@@ -81,6 +81,6 @@ jobs:
           rm -f "$GITHUB_WORKSPACE/.github/workflows/_import-rajdeep-susfs.yml"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- .github/workflows/build.yml .github/workflows/release.yml arch/arm64/configs/ruby_defconfig drivers/input/input.c fs include/linux kernel security/selinux/avc.c
+          git add -f -- .github/workflows/build.yml .github/workflows/release.yml arch/arm64/configs/ruby_defconfig drivers/input/input.c fs include/linux kernel security/selinux/avc.c
           git commit -m "fs / drivers: import Rajdeep SUSFS 2.2.0 and KSU integration"
           git push origin HEAD:main
