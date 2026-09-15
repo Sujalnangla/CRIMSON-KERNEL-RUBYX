@@ -75,7 +75,14 @@ jobs:
           set -euxo pipefail
           rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
           mkdir -p "$TOOLCHAIN_DIR"
-          curl -fL --retry 5 --retry-delay 3 --retry-all-errors "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
+          for attempt in 1 2 3 4 5; do
+            rm -f clang-r563880.tar.gz
+            wget --no-verbose --timeout=60 --tries=3 --waitretry=5 "$TOOLCHAIN_ARCHIVE" -O clang-r563880.tar.gz && break
+            echo "Toolchain download attempt $attempt failed"
+            sleep 5
+          done
+          test -s clang-r563880.tar.gz
+          gzip -t clang-r563880.tar.gz
           tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
           test -x "$TOOLCHAIN_DIR/bin/clang"
           test -x "$TOOLCHAIN_DIR/bin/ld.lld"
