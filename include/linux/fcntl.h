@@ -4,6 +4,15 @@
 
 #include <uapi/linux/fcntl.h>
 
+/* List of all valid flags for the how->resolve argument: */
+#define VALID_RESOLVE_FLAGS \
+       (RESOLVE_NO_XDEV | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS | \
+        RESOLVE_BENEATH | RESOLVE_IN_ROOT)
+
+/* List of all open_how "versions". */
+#define OPEN_HOW_SIZE_VER0     24 /* sizeof first published struct */
+#define OPEN_HOW_SIZE_LATEST   OPEN_HOW_SIZE_VER0
+
 /* list of all valid flags for the open/openat flags argument: */
 #define VALID_OPEN_FLAGS \
 	(O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC | \

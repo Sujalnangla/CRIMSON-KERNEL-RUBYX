@@ -43,6 +43,15 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 #define LOOKUP_RENAME_TARGET	0x0800
 
 #define LOOKUP_JUMPED		0x1000
+/* Scoping flags for lookup. */
+#define LOOKUP_NO_SYMLINKS   0x010000
+#define LOOKUP_NO_MAGICLINKS 0x020000
+#define LOOKUP_NO_XDEV       0x040000
+#define LOOKUP_BENEATH       0x080000
+#define LOOKUP_IN_ROOT       0x100000
+/* LOOKUP_* flags which do scope-related checks based on the dirfd. */
+#define LOOKUP_IS_SCOPED (LOOKUP_BENEATH | LOOKUP_IN_ROOT)
+
 #define LOOKUP_ROOT		0x2000
 #define LOOKUP_EMPTY		0x4000
 #define LOOKUP_DOWN		0x8000
@@ -96,7 +105,7 @@ extern int follow_up(struct path *);
 extern struct dentry *lock_rename(struct dentry *, struct dentry *);
 extern void unlock_rename(struct dentry *, struct dentry *);
 
-extern void nd_jump_link(struct path *path);
+extern int __must_check nd_jump_link(struct path *path);
 
 static inline void nd_terminate_link(void *name, size_t len, size_t maxlen)
 {
