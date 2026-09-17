@@ -12,8 +12,8 @@ env:
   ARCH: arm64
   OUT_DIR: ${{ github.workspace }}/out
   KERNEL_DEFCONFIG: ruby_defconfig
-  KSU_NEXT_REPO: https://github.com/wodanesdag/KernelSU-Next.git
-  KSU_NEXT_REF: f110cddc07e27b21ad77c6c31261660efb25dce4
+  KSU_NEXT_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
+  KSU_NEXT_REF: 3b18216f71df189ab3d1b1ce0bdb21be1268e771
   TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
   TOOLCHAIN_DIR: clang
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
