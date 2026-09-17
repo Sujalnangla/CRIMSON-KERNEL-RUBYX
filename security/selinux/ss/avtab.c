@@ -276,6 +276,52 @@ avtab_search_node_next(struct avtab_node *node, int specified)
 	return NULL;
 }
 
+int avtab_remove_node(struct avtab *h, struct avtab_node *node)
+{
+        int hvalue;
+        struct avtab_node *cur;
+        struct avtab_node *prev;
+
+        if (!h || !h->htable || !node)
+                return -EINVAL;
+
+        hvalue = avtab_hash(&node->key, h->mask);
+
+        prev = NULL;
+        cur = flex_array_get_ptr(h->htable, hvalue);
+
+        while (cur) {
+                if (cur == node) {
+                        if (prev) {
+                                prev->next = cur->next;
+                        } else {
+                                if (flex_array_put_ptr(h->htable, hvalue,
+                                                       cur->next,
+                                                       GFP_KERNEL |
+                                                       __GFP_ZERO))
+                                        return -ENOMEM;
+                        }
+
+                        if (h->nel > 0)
+                                h->nel--;
+
+                        if ((cur->key.specified & AVTAB_XPERMS) &&
+                            cur->datum.u.xperms)
+                                kmem_cache_free(avtab_xperms_cachep,
+                                                cur->datum.u.xperms);
+
+                        kmem_cache_free(avtab_node_cachep, cur);
+
+                        return 0;
+                }
+
+                prev = cur;
+                cur = cur->next;
+        }
+
+        return -ENOENT;
+}
+
 void avtab_destroy(struct avtab *h)
 {
 	int i;

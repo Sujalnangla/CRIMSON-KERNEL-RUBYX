@@ -43,6 +43,11 @@ static DEFINE_MUTEX(zram_index_mutex);
 static int zram_major;
 static const char *default_compressor = "lz4";
 
+/*
+ * Crimson default ZRAM size: 4 GiB.
+ */
+#define CRIMSON_ZRAM_DISKSIZE (4ULL << 30)
+
 /* Module params (documentation at end) */
 static unsigned int num_devices = 1;
 /*
@@ -1024,6 +1029,21 @@ static ssize_t comp_algorithm_store(struct device *dev,
 	if (!zcomp_available_algorithm(compressor))
 		return -EINVAL;
 
+	/*
+	 * Crimson default: keep initialized zram0 on LZ4.
+	 *
+	 * MT6877 vendor init attempts to select lzo-rle during boot.
+	 * zram0 is already initialized by the kernel with LZ4, so
+	 * ignore that automatic vendor request.
+	 */
+	if (!strcmp(zram->disk->disk_name, "zram0") &&
+	    zram->disksize == CRIMSON_ZRAM_DISKSIZE &&
+	    init_done(zram) &&
+	    !strcmp(compressor, "lzo-rle")) {
+		pr_info("Crimson: ignoring lzo-rle request for zram0; keeping LZ4\n");
+		return len;
+	}
+
 	down_write(&zram->init_lock);
 	if (init_done(zram)) {
 		up_write(&zram->init_lock);
@@ -1730,19 +1750,16 @@ static void zram_reset_device(struct zram *zram)
 	reset_bdev(zram);
 }
 
-static ssize_t disksize_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
+static int zram_set_disksize(struct zram *zram, u64 disksize)
 {
-	u64 disksize;
 	struct zcomp *comp;
-	struct zram *zram = dev_to_zram(dev);
 	int err;
 
-	disksize = memparse(buf, NULL);
 	if (!disksize)
 		return -EINVAL;
 
 	down_write(&zram->init_lock);
+
 	if (init_done(zram)) {
 		pr_info("Cannot change disksize for initialized device\n");
 		err = -EBUSY;
@@ -1758,7 +1775,7 @@ static ssize_t disksize_store(struct device *dev,
 	comp = zcomp_create(zram->compressor);
 	if (IS_ERR(comp)) {
 		pr_err("Cannot initialise %s compressing backend\n",
-				zram->compressor);
+		       zram->compressor);
 		err = PTR_ERR(comp);
 		goto out_free_meta;
 	}
@@ -1767,16 +1784,46 @@ static ssize_t disksize_store(struct device *dev,
 	zram->disksize = disksize;
 	set_capacity(zram->disk, zram->disksize >> SECTOR_SHIFT);
 
-	revalidate_disk(zram->disk);
 	up_write(&zram->init_lock);
 
-	return len;
+	return 0;
 
 out_free_meta:
 	zram_meta_free(zram, disksize);
 out_unlock:
 	up_write(&zram->init_lock);
 	return err;
+}
+
+static ssize_t disksize_store(struct device *dev,
+                struct device_attribute *attr, const char *buf, size_t len)
+{
+        u64 disksize;
+        struct zram *zram = dev_to_zram(dev);
+        int err;
+
+        disksize = memparse(buf, NULL);
+        if (!disksize)
+                return -EINVAL;
+
+        /*
+         * If zram0 was initialized by the kernel with the Crimson
+         * default size, allow Android's fstab initialization attempt
+         * to succeed without changing the already initialized device.
+         */
+        if (init_done(zram) &&
+            zram->disksize == CRIMSON_ZRAM_DISKSIZE &&
+            !strcmp(zram->disk->disk_name, "zram0")) {
+                return len;
+        }
+
+        err = zram_set_disksize(zram, disksize);
+        if (err)
+                return err;
+
+        revalidate_disk(zram->disk);
+
+        return len;
 }
 
 static ssize_t reset_store(struct device *dev,
@@ -1979,14 +2026,33 @@ static int zram_add(void)
 	zram->disk->queue->backing_dev_info->capabilities |=
 			(BDI_CAP_STABLE_WRITES | BDI_CAP_SYNCHRONOUS_IO);
 	disk_to_dev(zram->disk)->groups = zram_disk_attr_groups;
-	add_disk(zram->disk);
+	        /*
+         * Set compressor before initializing the default disksize.
+         */
+        strlcpy(zram->compressor, default_compressor,
+                sizeof(zram->compressor));
 
-	strlcpy(zram->compressor, default_compressor, sizeof(zram->compressor));
+        /*
+         * Crimson default: initialize zram0 to exactly 4 GiB
+         * before exposing it to userspace.
+         */
+        if (device_id == 0) {
+                ret = zram_set_disksize(zram, CRIMSON_ZRAM_DISKSIZE);
+                if (ret) {
+                        pr_err("Failed to initialize zram0 to 4 GiB: %d\n",
+                               ret);
+                        goto out_free_disk;
+                }
+        }
+
+        add_disk(zram->disk);
 
 	zram_debugfs_register(zram);
 	pr_info("Added device: %s\n", zram->disk->disk_name);
 	return device_id;
 
+out_free_disk:
+        put_disk(zram->disk);
 out_free_queue:
 	blk_cleanup_queue(queue);
 out_free_idr:
