@@ -72,7 +72,8 @@ jobs:
           set -euxo pipefail
 
           test -d KernelSU-Next
-          test -d drivers/kernelsu
+          test -e drivers/kernelsu
+          test -f KernelSU-Next/kernel/Makefile
           test -f fs/susfs.c
           test -f include/linux/susfs.h
           test -f include/linux/susfs_def.h
