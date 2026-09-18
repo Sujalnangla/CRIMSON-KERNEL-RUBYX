@@ -22,7 +22,7 @@ Crimson Kernel is a custom Android kernel for the **Redmi Note 12 Pro / Pro+ 5G*
 - **Filesystem Optimizations:** Modernized F2FS mount and direct I/O routines for improved SQLite read/write speeds across app databases.
 ### 🛡️ Security & Root Support
 - Modern hook integration ready (KernelSU-Next / SusFs support).
-- Upstream Linux 5.10-LTS patches and Android Security Bulletins (ASB) synced.
+- Upstream Linux 4.19-LTS patches and Android Security Bulletins (ASB) synced.
 ---
 ## 🛠️ Build Instructions
 ### Prerequisites
