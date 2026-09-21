@@ -2,7 +2,7 @@ name: Crimson Ruby Kernel Build
 
 on:
   push:
-    branches: [main, ksu-susfs]
+    branches: [main, ksu-susfs, prepare-ksu-openat2]
   workflow_dispatch:
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           submodules: false
 
       - name: Install dependencies
