@@ -27,6 +27,7 @@ jobs:
     name: Build Crimson Ruby kernel
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -38,7 +39,10 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libfl-dev libncurses-dev libssl-dev lz4 python3 rsync unzip wget xz-utils zip zstd
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex git libelf-dev \
+            libfl-dev libncurses-dev libssl-dev lz4 python3 rsync \
+            unzip wget xz-utils zip zstd
 
       - name: Validate source
         run: |
@@ -88,7 +92,8 @@ jobs:
           set -euxo pipefail
           rm -rf "$TOOLCHAIN_DIR" clang-r563880.tar.gz
           mkdir -p "$TOOLCHAIN_DIR"
-          curl -fL --retry 5 --retry-delay 3 --retry-all-errors "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+            "$TOOLCHAIN_ARCHIVE" -o clang-r563880.tar.gz
           tar -xzf clang-r563880.tar.gz -C "$TOOLCHAIN_DIR"
           test -x "$TOOLCHAIN_DIR/bin/clang"
           test -x "$TOOLCHAIN_DIR/bin/ld.lld"
@@ -98,12 +103,21 @@ jobs:
           set -euxo pipefail
           rm -rf "$OUT_DIR"
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+
           make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$KERNEL_DEFCONFIG"
-          ./scripts/config --file "$OUT_DIR/.config" --enable KSU --enable KSU_SUSFS --enable KSU_MANUAL_HOOK --disable KPROBES
+
+          ./scripts/config --file "$OUT_DIR/.config" \
+            --enable KSU \
+            --enable KSU_SUSFS \
+            --enable KSU_MANUAL_HOOK \
+            --disable KPROBES
+
           sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/' "$OUT_DIR/.config"
           sed -i '/^CONFIG_LOCALVERSION_AUTO=/d' "$OUT_DIR/.config"
           echo 'CONFIG_LOCALVERSION_AUTO=n' >> "$OUT_DIR/.config"
+
           make O="$OUT_DIR" ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
+
           grep -q '^CONFIG_KSU=y$' "$OUT_DIR/.config"
           grep -q '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config"
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' "$OUT_DIR/.config"
@@ -126,46 +140,77 @@ jobs:
           set -euxo pipefail
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
           export USE_CCACHE=1
-          make -j"$(nproc)" O="$OUT_DIR" ARCH="$ARCH" CC=clang LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip LOCALVERSION="" KCFLAGS="-Wno-error=implicit-function-declaration"
+
+          make -j"$(nproc)" \
+            O="$OUT_DIR" \
+            ARCH="$ARCH" \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            READELF=llvm-readelf \
+            STRIP=llvm-strip \
+            LOCALVERSION="" \
+            KCFLAGS="-Wno-error=implicit-function-declaration"
 
       - name: Verify and package
         run: |
           set -euxo pipefail
           export PATH="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin:$PATH"
+
           release=$(make O="$OUT_DIR" ARCH="$ARCH" LOCALVERSION="" -s kernelrelease)
           echo "kernelrelease=$release"
           test "$release" = "$EXPECTED_KERNEL_RELEASE"
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" Image.gz; elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then cp "$OUT_DIR/arch/arm64/boot/Image.gz" Image.gz; else echo 'Kernel image not found'; exit 1; fi
-          if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then cp "$OUT_DIR/arch/arm64/boot/dtbo.img" dtbo.img; fi
+
+          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" Image.gz
+          elif [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
+            cp "$OUT_DIR/arch/arm64/boot/Image.gz" Image.gz
+          else
+            echo 'Kernel image not found'
+            exit 1
+          fi
+
+          if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then
+            cp "$OUT_DIR/arch/arm64/boot/dtbo.img" dtbo.img
+          fi
+
           rm -rf AnyKernel3
-          git clone --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
+          git clone --depth=1 --branch "$ANYKERNEL_BRANCH" \
+            "$ANYKERNEL_REPO" AnyKernel3
+
           test -f AnyKernel3/anykernel.sh
+
           cp Image.gz AnyKernel3/Image.gz
-          [ ! -f dtbo.img ] || cp dtbo.img AnyKernel3/dtbo.img
-          python3 - <<'PY'
-          from pathlib import Path
-          script = Path('AnyKernel3/anykernel.sh')
-          text = script.read_text()
-          old = 'kernel.string=Eclipse Kernel'
-          new = 'kernel.string=Crimson Kernel - By Shu'
-          if old not in text:
-              raise SystemExit('Expected Eclipse AnyKernel branding was not found')
-          script.write_text(text.replace(old, new, 1))
-          banner = '''==================================================
-                CRIMSON KERNEL
-                    BY SHU
-==================================================
-        Crimson Ruby | MediaTek MT6877
-              Redmi Note 12 Pro/Pro+
-==================================================
-'''
-          Path('AnyKernel3/banner').write_text(banner)
-          PY
-          grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
+
+          if [ -f dtbo.img ]; then
+            cp dtbo.img AnyKernel3/dtbo.img
+          fi
+
+          sed -i 's/^kernel.string=Eclipse Kernel$/kernel.string=Crimson Kernel - By Shu/' AnyKernel3/anykernel.sh
+
+          printf '%s\n' \
+            '==================================================' \
+            '              CRIMSON KERNEL' \
+            '                  BY SHU' \
+            '==================================================' \
+            '      Crimson Ruby | MediaTek MT6877' \
+            '            Redmi Note 12 Pro/Pro+' \
+            '==================================================' \
+            > AnyKernel3/banner
+
+          grep -q '^kernel.string=Crimson Kernel - By Shu$' \
+            AnyKernel3/anykernel.sh
           grep -q 'CRIMSON KERNEL' AnyKernel3/banner
           grep -q 'BY SHU' AnyKernel3/banner
+
           cd AnyKernel3
-          zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" . -x '.git/*'
+          zip -r9 "$GITHUB_WORKSPACE/Crimson-ruby-${GITHUB_RUN_NUMBER}.zip" \
+            . -x '.git/*'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
