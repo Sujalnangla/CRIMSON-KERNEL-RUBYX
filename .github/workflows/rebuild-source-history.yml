@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ksu-susfs
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,6 +30,14 @@ jobs:
           BASE="ae452cb8eacd278f8a0101ed1e08c6ef99ab902e"
           REBOOT="a237dc3deaa08ec223eaca309b004a8b662907b9"
           ARCHIVE="archive/ksu-susfs-ci-history"
+
+          # The historical archive branch was removed after the source history
+          # rebuild was completed. Do not fail every ksu-susfs push because this
+          # one-shot maintenance workflow can no longer run.
+          if ! git ls-remote --exit-code origin "refs/heads/${ARCHIVE}" >/dev/null 2>&1; then
+            echo "::notice::${ARCHIVE} is not present; source-history rebuild is already complete, skipping."
+            exit 0
+          fi
 
           git fetch origin "$BASE" "$REBOOT" "$ARCHIVE"
           git checkout -B clean-source-baseline "$BASE"
