@@ -1,9 +1,6 @@
 name: Rebuild clean kernel source history
 
 on:
-  push:
-    branches:
-      - ksu-susfs
   workflow_dispatch:
 
 permissions:
@@ -11,7 +8,6 @@ permissions:
 
 jobs:
   rebuild:
-    if: github.event.head_commit.message != 'chore: temporary source-history rebuild runner'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout full history
@@ -31,9 +27,9 @@ jobs:
           REBOOT="a237dc3deaa08ec223eaca309b004a8b662907b9"
           ARCHIVE="archive/ksu-susfs-ci-history"
 
-          # The historical archive branch was removed after the source history
-          # rebuild was completed. Do not fail every ksu-susfs push because this
-          # one-shot maintenance workflow can no longer run.
+          # This is a one-shot maintenance workflow. The archive ref was removed
+          # after the clean source history was rebuilt, so manual runs should exit
+          # cleanly instead of failing on every push.
           if ! git ls-remote --exit-code origin "refs/heads/${ARCHIVE}" >/dev/null 2>&1; then
             echo "::notice::${ARCHIVE} is not present; source-history rebuild is already complete, skipping."
             exit 0
@@ -48,12 +44,10 @@ jobs:
           git show "$ARCHIVE":scripts/apply-susfs-avc-fix.py > /tmp/history-scripts/apply-susfs-avc-fix.py
           chmod +x /tmp/history-scripts/*.py
 
-          # 1. Preserve the already-reviewed KSU reboot source change as a real source commit.
           git show "$REBOOT":kernel/reboot.c > kernel/reboot.c
           git add kernel/reboot.c
           git commit -m "kernel: handle KSU reboot supercall before capability check"
 
-          # 2. Apply the SUSFS VFS/proc integration and KPROBES=n directly to source.
           python3 /tmp/history-scripts/apply-susfs-vfs-integration.py
           git add \
             fs/namei.c fs/readdir.c fs/stat.c fs/statfs.c fs/open.c fs/namespace.c \
@@ -62,23 +56,18 @@ jobs:
             arch/arm64/configs/ruby_defconfig
           git commit -m "kernel: integrate SUSFS v2.2.0 VFS and proc hooks"
 
-          # 3. Install KernelSU-Next only as a build dependency, then make the
-          #    missing manual hook sites permanent source changes.
           git clone --depth=1 --branch susfs https://github.com/wodanesdag/KernelSU-Next.git /tmp/KernelSU-Next
           bash /tmp/KernelSU-Next/kernel/setup.sh susfs
           python3 /tmp/history-scripts/apply-ksu-manual-hooks.py
           git add fs/open.c fs/stat.c fs/read_write.c drivers/input/input.c
           git commit -m "kernel: add KernelSU manual hooks for 4.19"
 
-          # 4. Make the SUSFS AVC integration a normal source commit.
           python3 /tmp/history-scripts/apply-susfs-avc-fix.py
           git add security/selinux/avc.c
           if ! git diff --cached --quiet; then
             git commit -m "selinux: integrate SUSFS AVC log spoofing"
           fi
 
-          # No CI patch scripts or temporary workflow files are copied into the
-          # clean branch. Verify only the intended source/config files changed.
           git status --short
           test -z "$(git status --short)"
           git log --oneline --decorate -8
