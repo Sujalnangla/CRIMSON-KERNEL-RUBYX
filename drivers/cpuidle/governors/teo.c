@@ -430,7 +430,7 @@ static int teo_enable_device(struct cpuidle_driver *drv,
 
 static struct cpuidle_governor teo_governor = {
 	.name =		"teo",
-	.rating =	19,
+	.rating =	110,	/* prefer TEO over MTK governors */
 	.enable =	teo_enable_device,
 	.select =	teo_select,
 	.reflect =	teo_reflect,
