@@ -552,14 +552,67 @@ static unsigned int mt_gpufreq_return_by_condition(
 	return ret;
 }
 
-static void mt_gpufreq_update_limit_idx(unsigned int kicker,
-		unsigned int t_upper_idx, unsigned int t_lower_idx)
+static void mt_gpufreq_recalc_limit_idx(void)
 {
 	unsigned int i;
 	unsigned int upper_kicker, lower_kicker;
 	unsigned int upper_prio, lower_prio;
 	unsigned int upper_limit_idx, lower_limit_idx;
 
+	upper_kicker = NUM_OF_KIR;
+	lower_kicker = NUM_OF_KIR;
+	upper_prio = GPUFREQ_LIMIT_PRIO_NONE;
+	lower_prio = GPUFREQ_LIMIT_PRIO_NONE;
+	upper_limit_idx = g_segment_max_opp_idx;
+	lower_limit_idx = g_segment_min_opp_idx;
+
+	for (i = 0; i < NUM_OF_KIR; i++) {
+		if (limit_table[i].upper_idx != LIMIT_IDX_DEFAULT &&
+			limit_table[i].upper_enable == LIMIT_ENABLE) {
+			if (limit_table[i].prio > upper_prio) {
+				upper_kicker = i;
+				upper_limit_idx = limit_table[i].upper_idx;
+				upper_prio = limit_table[i].prio;
+			} else if ((limit_table[i].upper_idx > upper_limit_idx) &&
+				(limit_table[i].prio == upper_prio)) {
+				upper_kicker = i;
+				upper_limit_idx = limit_table[i].upper_idx;
+				upper_prio = limit_table[i].prio;
+			}
+		}
+
+		if (limit_table[i].lower_idx != LIMIT_IDX_DEFAULT &&
+			limit_table[i].lower_enable == LIMIT_ENABLE) {
+			if (limit_table[i].prio > lower_prio) {
+				lower_kicker = i;
+				lower_limit_idx = limit_table[i].lower_idx;
+				lower_prio = limit_table[i].prio;
+			} else if ((limit_table[i].lower_idx < lower_limit_idx) &&
+				(limit_table[i].prio == lower_prio)) {
+				lower_kicker = i;
+				lower_limit_idx = limit_table[i].lower_idx;
+				lower_prio = limit_table[i].prio;
+			}
+		}
+	}
+
+	g_upper_kicker = upper_kicker;
+	g_lower_kicker = lower_kicker;
+
+	if (upper_limit_idx > lower_limit_idx) {
+		if (upper_prio >= lower_prio)
+			lower_limit_idx = g_segment_min_opp_idx;
+		else
+			upper_limit_idx = g_segment_max_opp_idx;
+	}
+
+	g_max_upper_limited_idx = upper_limit_idx;
+	g_min_lower_limited_idx = lower_limit_idx;
+}
+
+static void mt_gpufreq_update_limit_idx(unsigned int kicker,
+		unsigned int t_upper_idx, unsigned int t_lower_idx)
+{
 	mutex_lock(&mt_gpufreq_limit_table_lock);
 
 	if (limit_table[kicker].upper_idx == t_upper_idx &&
@@ -574,69 +627,9 @@ static void mt_gpufreq_update_limit_idx(unsigned int kicker,
 	gpufreq_pr_debug("@%s: kicker=%d t_upper_idx=%d t_lower_idx=%d\n",
 			__func__, kicker, t_upper_idx, t_lower_idx);
 
-	upper_kicker = NUM_OF_KIR;
-	lower_kicker = NUM_OF_KIR;
-
-	upper_prio = GPUFREQ_LIMIT_PRIO_NONE;
-	lower_prio = GPUFREQ_LIMIT_PRIO_NONE;
-
-	upper_limit_idx = g_segment_max_opp_idx;
-	lower_limit_idx = g_segment_min_opp_idx;
-
-	for (i = 0; i < NUM_OF_KIR; i++) {
-		/* check upper limit */
-		/* choose limit idx not default and limit is enable */
-		if (limit_table[i].upper_idx != LIMIT_IDX_DEFAULT &&
-			limit_table[i].upper_enable == LIMIT_ENABLE) {
-			/* choose limit idx of higher priority */
-			if (limit_table[i].prio > upper_prio) {
-				upper_kicker = i;
-				upper_limit_idx = limit_table[i].upper_idx;
-				upper_prio = limit_table[i].prio;
-			}
-			/* choose big limit idx if proiority is the same */
-			else if ((limit_table[i].upper_idx > upper_limit_idx) &&
-				(limit_table[i].prio == upper_prio)) {
-				upper_kicker = i;
-				upper_limit_idx = limit_table[i].upper_idx;
-				upper_prio = limit_table[i].prio;
-			}
-		}
-
-		/* check lower limit */
-		/* choose limit idx not default and limit is enable */
-		if (limit_table[i].lower_idx != LIMIT_IDX_DEFAULT &&
-			limit_table[i].lower_enable == LIMIT_ENABLE) {
-			/* choose limit idx of higher priority */
-			if (limit_table[i].prio > lower_prio) {
-				lower_kicker = i;
-				lower_limit_idx = limit_table[i].lower_idx;
-				lower_prio = limit_table[i].prio;
-			}
-			/* choose small limit idx if proiority is the same */
-			else if ((limit_table[i].lower_idx < lower_limit_idx) &&
-				(limit_table[i].prio == lower_prio)) {
-				lower_kicker = i;
-				lower_limit_idx = limit_table[i].lower_idx;
-				lower_prio = limit_table[i].prio;
-			}
-		}
-	}
+	mt_gpufreq_recalc_limit_idx();
 
 	mutex_unlock(&mt_gpufreq_limit_table_lock);
-
-	g_upper_kicker = upper_kicker;
-	g_lower_kicker = lower_kicker;
-
-	if (upper_limit_idx > lower_limit_idx) {
-		if (upper_prio >= lower_prio)
-			lower_limit_idx = g_segment_min_opp_idx;
-		else
-			upper_limit_idx = g_segment_max_opp_idx;
-	}
-
-	g_max_upper_limited_idx = upper_limit_idx;
-	g_min_lower_limited_idx = lower_limit_idx;
 }
 
 static void mt_gpufreq_update_limit_enable(unsigned int kicker,
@@ -655,6 +648,8 @@ static void mt_gpufreq_update_limit_enable(unsigned int kicker,
 
 	gpufreq_pr_debug("@%s: kicker=%d t_upper_enable=%d t_lower_enable=%d\n",
 			__func__, kicker, t_upper_enable, t_lower_enable);
+
+	mt_gpufreq_recalc_limit_idx();
 
 	mutex_unlock(&mt_gpufreq_limit_table_lock);
 }
