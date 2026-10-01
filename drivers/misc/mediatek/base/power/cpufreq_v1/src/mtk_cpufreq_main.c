@@ -1121,11 +1121,11 @@ static void ppm_limit_callback(struct ppm_client_req req)
 #ifdef CONFIG_HYBRID_CPU_DVFS
 	for (i = 0; i < ppm->cluster_num; i++) {
 		if (ppm->cpu_limit[i].has_advise_freq)
-			cpuhvfs_set_min_max(i,
+			cpuhvfs_set_min_max(ppm->cpu_limit[i].cluster_id,
 				ppm->cpu_limit[i].advise_cpufreq_idx,
 				ppm->cpu_limit[i].advise_cpufreq_idx);
 		else
-			cpuhvfs_set_min_max(i,
+			cpuhvfs_set_min_max(ppm->cpu_limit[i].cluster_id,
 				ppm->cpu_limit[i].min_cpufreq_idx,
 				ppm->cpu_limit[i].max_cpufreq_idx);
 	}
