@@ -657,6 +657,10 @@ static void mt_gpufreq_update_limit_enable(unsigned int kicker,
 static unsigned int mt_gpufreq_limit_idx_by_condition(unsigned int target_idx)
 {
 	unsigned int limit_idx;
+	unsigned int max_upper_limited_idx;
+	unsigned int min_lower_limited_idx;
+	unsigned int upper_kicker;
+	unsigned int lower_kicker;
 
 	limit_idx = target_idx;
 
@@ -669,17 +673,30 @@ static unsigned int mt_gpufreq_limit_idx_by_condition(unsigned int target_idx)
 		mt_gpufreq_update_limit_idx(KIR_STRESS, limit_idx, limit_idx);
 	}
 
-	if (limit_idx < g_max_upper_limited_idx)
-		limit_idx = g_max_upper_limited_idx;
+	/*
+	 * The limit table is updated under mt_gpufreq_limit_table_lock.
+	 * Take a consistent snapshot before applying the current limits so
+	 * upper/lower bounds and their owning kickers cannot be observed from
+	 * different recalculation states.
+	 */
+	mutex_lock(&mt_gpufreq_limit_table_lock);
+	max_upper_limited_idx = g_max_upper_limited_idx;
+	min_lower_limited_idx = g_min_lower_limited_idx;
+	upper_kicker = g_upper_kicker;
+	lower_kicker = g_lower_kicker;
+	mutex_unlock(&mt_gpufreq_limit_table_lock);
 
-	if (limit_idx > g_min_lower_limited_idx)
-		limit_idx = g_min_lower_limited_idx;
+	if (limit_idx < max_upper_limited_idx)
+		limit_idx = max_upper_limited_idx;
+
+	if (limit_idx > min_lower_limited_idx)
+		limit_idx = min_lower_limited_idx;
 
 	gpufreq_pr_logbuf(
 		"limit_idx: %d, g_upper_kicker: %d, g_max_upper_limited_idx: %d, g_lower_kicker: %d, g_min_lower_limited_idx: %d\n",
 		limit_idx,
-		g_upper_kicker, g_max_upper_limited_idx,
-		g_lower_kicker, g_min_lower_limited_idx);
+		upper_kicker, max_upper_limited_idx,
+		lower_kicker, min_lower_limited_idx);
 
 	return limit_idx;
 }
