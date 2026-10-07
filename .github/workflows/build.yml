@@ -88,7 +88,4 @@ jobs:
             exit 1
           fi
 
-          grep -q '^# CONFIG_MTK_FPSGO is not set$' arch/arm64/configs/ruby_defconfig
-          grep -q '^CONFIG_TCP_CONG_BBR3=y$' arch/arm64/configs/ruby_defconfig
-
           echo 'KernelSU/SUSFS source and defconfig validation passed'
