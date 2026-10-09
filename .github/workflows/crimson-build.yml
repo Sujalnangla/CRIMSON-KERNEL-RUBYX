@@ -2,7 +2,10 @@ name: Crimson Ruby Kernel Build
 
 on:
   push:
-    branches: [main, ksu-susfs]
+    branches:
+      - main
+      - ksu-susfs
+      - work/ksu-susfs-v34-port
   workflow_dispatch:
 
 permissions:
@@ -13,7 +16,7 @@ env:
   OUT_DIR: ${{ github.workspace }}/out
   KERNEL_DEFCONFIG: ruby_defconfig
   KSU_NEXT_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
-  KSU_NEXT_REF: 3b18216f71df189ab3d1b1ce0bdb21be1268e771
+  KSU_NEXT_REF: f110cddc07e27b21ad77c6c31261660efb25dce4
   TOOLCHAIN_ARCHIVE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz
   TOOLCHAIN_DIR: clang
   ANYKERNEL_REPO: https://github.com/rajdeep-3305/AnyKernel3
@@ -49,6 +52,7 @@ jobs:
           test -f include/linux/susfs.h
           test -f include/linux/susfs_def.h
           test -f scripts/apply-susfs-avc-fix.py
+          test -f patches/kernelsu-next/0001-apk-sign-short-read-checks.patch
           test -f localversion-cip
           test -f localversion-st
           test -f localversion-crimson
@@ -64,7 +68,13 @@ jobs:
           git -C KernelSU-Next fetch --depth=1 origin "$KSU_NEXT_REF"
           git -C KernelSU-Next checkout --detach "$KSU_NEXT_REF"
           test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSU_NEXT_REF"
-          bash KernelSU-Next/kernel/setup.sh susfs
+          bash KernelSU-Next/kernel/setup.sh "$KSU_NEXT_REF"
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSU_NEXT_REF"
+          echo "KernelSU-Next source: $(git -C KernelSU-Next log -1 --format=%H) ($(git -C KernelSU-Next log -1 --format=%s))"
+          git apply --check patches/kernelsu-next/0001-apk-sign-short-read-checks.patch
+          git apply patches/kernelsu-next/0001-apk-sign-short-read-checks.patch
+          grep -q 'ksu_kernel_read_compat(fp, size4, 0x4, pos) != 0x4' KernelSU-Next/kernel/manager/apk_sign.c
+          grep -q 'ksu_kernel_read_compat(fp, cert, \*size4, pos) != \*size4' KernelSU-Next/kernel/manager/apk_sign.c
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
           test -f drivers/kernelsu/Makefile
