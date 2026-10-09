@@ -161,14 +161,16 @@ jobs:
           if old not in text:
               raise SystemExit('Expected Eclipse AnyKernel branding was not found')
           script.write_text(text.replace(old, new, 1))
-          banner = '''==================================================
-                CRIMSON KERNEL
-                    BY SHU
-==================================================
-        Crimson Ruby | MediaTek MT6877
-              Redmi Note 12 Pro/Pro+
-==================================================
-'''
+          banner = "\\n".join([
+              "==================================================",
+              "                CRIMSON KERNEL",
+              "                    BY SHU",
+              "==================================================",
+              "        Crimson Ruby | MediaTek MT6877",
+              "              Redmi Note 12 Pro/Pro+",
+              "==================================================",
+              "",
+          ])
           Path('AnyKernel3/banner').write_text(banner)
           PY
           grep -q '^kernel.string=Crimson Kernel - By Shu$' AnyKernel3/anykernel.sh
