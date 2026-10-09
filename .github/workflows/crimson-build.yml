@@ -1,5 +1,4 @@
 name: Crimson Ruby Kernel Build
-# Temporary validation run after enabling this branch in the default workflow.
 
 on:
   push:
