@@ -2,7 +2,7 @@ name: Crimson Ruby Kernel Build
 
 on:
   push:
-    branches: [main, ksu-susfs]
+    branches: [main, ksu-susfs, work/ksu-susfs-v34-port]
   workflow_dispatch:
 
 permissions:
