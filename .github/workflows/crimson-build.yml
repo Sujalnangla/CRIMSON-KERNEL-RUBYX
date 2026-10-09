@@ -52,7 +52,7 @@ jobs:
           test -f include/linux/susfs.h
           test -f include/linux/susfs_def.h
           test -f scripts/apply-susfs-avc-fix.py
-          test -f patches/kernelsu-next/0001-apk-sign-short-read-checks.patch
+          test -f scripts/apply-kernelsu-apk-short-read.py
           test -f localversion-cip
           test -f localversion-st
           test -f localversion-crimson
@@ -73,8 +73,7 @@ jobs:
           ln -sfn "$(realpath --relative-to=drivers KernelSU-Next/kernel)" drivers/kernelsu
           grep -q '^obj-$(CONFIG_KSU) += kernelsu/$' drivers/Makefile
           grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          git apply --check patches/kernelsu-next/0001-apk-sign-short-read-checks.patch
-          git apply patches/kernelsu-next/0001-apk-sign-short-read-checks.patch
+          python3 scripts/apply-kernelsu-apk-short-read.py
           test -L drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
           test -f drivers/kernelsu/Makefile
