@@ -7005,6 +7005,9 @@ static const struct bpf_func_proto *
 sock_filter_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 {
 	switch (func_id) {
+	case BPF_FUNC_get_retval:
+	case BPF_FUNC_set_retval:
+		return cgroup_common_func_proto(func_id, prog);
 	/* inet and inet6 sockets are created in a process
 	 * context so there is always a valid uid/gid
 	 */
@@ -7043,6 +7046,9 @@ static const struct bpf_func_proto *
 sock_addr_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 {
 	switch (func_id) {
+	case BPF_FUNC_get_retval:
+	case BPF_FUNC_set_retval:
+		return cgroup_common_func_proto(func_id, prog);
 	/* inet and inet6 sockets are created in a process
 	 * context so there is always a valid uid/gid
 	 */

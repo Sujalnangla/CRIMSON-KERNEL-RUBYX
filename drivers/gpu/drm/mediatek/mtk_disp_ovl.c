@@ -675,17 +675,12 @@ static int mtk_ovl_io_cmd(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,
 
 static void mtk_ovl_start(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle)
 {
-	int ret;
 	unsigned int val;
 	struct mtk_disp_ovl *ovl = comp_to_ovl(comp);
 	const struct compress_info *compr_info = ovl->data->compr_info;
 	unsigned int value = 0, mask = 0;
 
 	DDPDBG("%s+ %s\n", __func__, mtk_dump_comp_str(comp));
-
-	ret = pm_runtime_get_sync(comp->dev);
-	if (ret < 0)
-		DRM_ERROR("Failed to enable power domain: %d\n", ret);
 
 	mtk_ovl_io_cmd(comp, handle, IRQ_LEVEL_ALL, NULL);
 
@@ -736,13 +731,8 @@ static void mtk_ovl_start(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle)
 
 static void mtk_ovl_stop(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle)
 {
-	int ret;
-
 	DDPDBG("%s+\n", __func__);
 
-	ret = pm_runtime_put(comp->dev);
-	if (ret < 0)
-		DRM_ERROR("Failed to disable power domain: %d\n", ret);
 	cmdq_pkt_write(handle, comp->cmdq_base,
 			comp->regs_pa + DISP_REG_OVL_INTEN, 0, ~0);
 	cmdq_pkt_write(handle, comp->cmdq_base, comp->regs_pa + DISP_REG_OVL_EN,
@@ -801,6 +791,23 @@ static void mtk_ovl_config(struct mtk_ddp_comp *comp,
 		       ~0);
 
 	mtk_ovl_golden_setting(comp, cfg, handle);
+}
+
+static void mtk_ovl_first_cfg(struct mtk_ddp_comp *comp,
+			    struct mtk_ddp_config *cfg, struct cmdq_pkt *handle)
+{
+	if (!IS_ENABLED(CONFIG_MACH_MT6877))
+		return;
+
+	/*
+	 * LK handoff skips config() and start(). Apply the same FIFO, SMI and
+	 * burst settings used by the normal enable path before userspace adds
+	 * layers. The first-config packet already waits for frame completion;
+	 * neither operation resets the engine or changes the retained logo
+	 * layer's address.
+	 */
+	mtk_ovl_config(comp, cfg, handle);
+	mtk_ovl_start(comp, handle);
 }
 
 static void mtk_ovl_layer_on(struct mtk_ddp_comp *comp, unsigned int idx,
@@ -3497,6 +3504,11 @@ static void mtk_ovl_prepare(struct mtk_ddp_comp *comp)
 	}
 	priv = dev_get_drvdata(comp->dev);
 
+	/* Hold the power domain while component clocks and registers are in use. */
+	ret = pm_runtime_get_sync(comp->dev);
+	if (ret < 0)
+		DRM_ERROR("Failed to enable power domain: %d\n", ret);
+
 	mtk_ddp_comp_clk_prepare(comp);
 
 	if (priv->fbdc_clk != NULL) {
@@ -3534,11 +3546,17 @@ static void mtk_ovl_prepare(struct mtk_ddp_comp *comp)
 static void mtk_ovl_unprepare(struct mtk_ddp_comp *comp)
 {
 	struct mtk_disp_ovl *priv = dev_get_drvdata(comp->dev);
+	int ret;
 
 	if (priv->fbdc_clk != NULL)
 		clk_disable_unprepare(priv->fbdc_clk);
 
 	mtk_ddp_comp_clk_unprepare(comp);
+
+	/* Keep the reference until stop commands and clock teardown finish. */
+	ret = pm_runtime_put(comp->dev);
+	if (ret < 0)
+		DRM_ERROR("Failed to disable power domain: %d\n", ret);
 }
 
 static void
@@ -3635,6 +3653,7 @@ mtk_ovl_config_trigger(struct mtk_ddp_comp *comp, struct cmdq_pkt *pkt,
 
 static const struct mtk_ddp_comp_funcs mtk_disp_ovl_funcs = {
 	.config = mtk_ovl_config,
+	.first_cfg = mtk_ovl_first_cfg,
 	.start = mtk_ovl_start,
 	.stop = mtk_ovl_stop,
 #if 0
