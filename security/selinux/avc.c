@@ -193,16 +193,6 @@ static void avc_dump_query(struct audit_buffer *ab, struct selinux_state *state,
 	}
 
 	rc = security_sid_to_context(state, tsid, &scontext, &scontext_len);
-#ifdef CONFIG_KSU_SUSFS
-	if (unlikely(tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled)) {
-		if (rc)
-			audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
-		else
-			audit_log_format(ab, " tcontext=%s", "u:r:priv_app:s0:c512,c768");
-		goto bypass_orig_flow;
-	}
-#endif
-
 	if (rc)
 		audit_log_format(ab, " tsid=%d", tsid);
 	else {
@@ -210,9 +200,6 @@ static void avc_dump_query(struct audit_buffer *ab, struct selinux_state *state,
 		kfree(scontext);
 	}
 
-#ifdef CONFIG_KSU_SUSFS
-bypass_orig_flow:
-#endif
 	BUG_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map));
 	audit_log_format(ab, " tclass=%s", secclass_map[tclass-1].name);
 }
@@ -776,23 +763,6 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
 	if (ad->selinux_audit_data->denied) {
 		audit_log_format(ab, " permissive=%u",
 				 ad->selinux_audit_data->result ? 0 : 1);
-#ifdef CONFIG_MTK_SELINUX_AEE_WARNING
-		{
-			struct nlmsghdr *nlh;
-			char *selinux_data;
-
-			if (enforcing_enabled(ad->selinux_audit_data->state)
-					&& ab) {
-				nlh = nlmsg_hdr(audit_get_skb(ab));
-				selinux_data = nlmsg_data(nlh);
-
-				if (mtk_audit_hook
-						&& nlh->nlmsg_type != AUDIT_EOE
-						&& nlh->nlmsg_type == 1400)
-					mtk_audit_hook(selinux_data);
-			}
-		}
-#endif
 	}
 }
 

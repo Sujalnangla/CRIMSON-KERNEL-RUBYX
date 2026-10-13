@@ -398,6 +398,13 @@ static int bpf_adj_branches(struct bpf_prog *prog, u32 pos, s32 end_old,
 			i = end_new;
 			insn = prog->insnsi + end_old;
 		}
+		if (bpf_pseudo_func(insn)) {
+			ret = bpf_adj_delta_to_imm(insn, pos, end_old,
+						   end_new, i, probe_pass);
+			if (ret)
+				return ret;
+			continue;
+		}
 		code = insn->code;
 		if ((BPF_CLASS(code) != BPF_JMP &&
 		     BPF_CLASS(code) != BPF_JMP32) ||
@@ -842,7 +849,7 @@ static int __init bpf_jit_charge_init(void)
 }
 pure_initcall(bpf_jit_charge_init);
 
-int bpf_jit_charge_modmem(u32 pages)
+static int bpf_jit_charge_modmem(u32 pages)
 {
 	if (atomic_long_add_return(pages, &bpf_jit_current) >
 	    (bpf_jit_limit >> PAGE_SHIFT)) {
@@ -855,7 +862,7 @@ int bpf_jit_charge_modmem(u32 pages)
 	return 0;
 }
 
-void bpf_jit_uncharge_modmem(u32 pages)
+static void bpf_jit_uncharge_modmem(u32 pages)
 {
 	atomic_long_sub(pages, &bpf_jit_current);
 }
@@ -869,7 +876,6 @@ void __weak bpf_jit_free_exec(void *addr)
 {
 	module_memfree(addr);
 }
-
 struct bpf_binary_header *
 bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 		     unsigned int alignment,
@@ -1166,6 +1172,16 @@ struct bpf_prog *bpf_jit_blind_constants(struct bpf_prog *prog)
 	insn = clone->insnsi;
 
 	for (i = 0; i < insn_cnt; i++, insn++) {
+		if (bpf_pseudo_func(insn)) {
+			/* ld_imm64 with an address of bpf subprog is not
+			 * a user controlled constant. Don't randomize it,
+			 * since it will conflict with jit_subprogs() logic.
+			 */
+			insn++;
+			i++;
+			continue;
+		}
+
 		/* We temporarily need to hold the original ld64 insn
 		 * so that we can still access the first part in the
 		 * second blinding run.
@@ -2275,7 +2291,6 @@ const struct bpf_func_proto bpf_get_prandom_u32_proto __weak;
 const struct bpf_func_proto bpf_get_smp_processor_id_proto __weak;
 const struct bpf_func_proto bpf_get_numa_node_id_proto __weak;
 const struct bpf_func_proto bpf_ktime_get_ns_proto __weak;
-const struct bpf_func_proto bpf_ktime_get_boot_ns_proto __weak;
 
 const struct bpf_func_proto bpf_get_current_pid_tgid_proto __weak;
 const struct bpf_func_proto bpf_get_current_uid_gid_proto __weak;

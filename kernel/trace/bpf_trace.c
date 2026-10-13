@@ -124,7 +124,10 @@ unsigned int trace_call_bpf(struct trace_event_call *call, void *ctx)
 	 * out of events when it was updated in between this and the
 	 * rcu_dereference() which is accepted risk.
 	 */
-	ret = BPF_PROG_RUN_ARRAY_CHECK(call->prog_array, ctx, BPF_PROG_RUN);
+	rcu_read_lock();
+	ret = bpf_prog_run_array(rcu_dereference(call->prog_array),
+				 ctx, bpf_prog_run);
+	rcu_read_unlock();
 
  out:
 	__this_cpu_dec(bpf_prog_active);
@@ -1284,6 +1287,8 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_per_cpu_ptr_proto;
 	case BPF_FUNC_this_cpu_ptr:
 		return &bpf_this_cpu_ptr_proto;
+	case BPF_FUNC_for_each_map_elem:
+		return &bpf_for_each_map_elem_proto;
 	default:
 		return NULL;
 	}

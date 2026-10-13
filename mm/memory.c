@@ -61,7 +61,6 @@
 #include <linux/memcontrol.h>
 #include <linux/mmu_notifier.h>
 #include <linux/swapops.h>
-#include <linux/xarray.h>
 #include <linux/elf.h>
 #include <linux/gfp.h>
 #include <linux/migrate.h>
@@ -2868,7 +2867,7 @@ static void lru_gen_swap_refault(struct page *page, swp_entry_t entry)
 	rcu_read_lock();
 	item = radix_tree_lookup(&mapping->i_pages, index);
 	rcu_read_unlock();
-	if (xa_is_value(item))
+	if (radix_tree_exceptional_entry(item))
 		lru_gen_refault(page, item);
 }
 #else

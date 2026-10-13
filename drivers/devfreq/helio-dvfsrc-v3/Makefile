@@ -10,8 +10,7 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU General Public License for more details.
 #
-ccflags-y += -Werror -I$(srctree)/drivers/devfreq
-ccflags-y += -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3
+ccflags-y += -Werror -I$(srctree)/drivers/devfreq -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/spm/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/dramc/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/
