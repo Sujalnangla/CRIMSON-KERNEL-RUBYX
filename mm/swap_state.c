@@ -140,13 +140,13 @@ int __add_to_swap_cache(struct page *page, swp_entry_t entry, void **shadowp)
 
 		item = radix_tree_deref_slot_protected(slot,
 				&address_space->i_pages.xa_lock);
-		if (WARN_ON_ONCE(item && !xa_is_value(item))) {
+		if (WARN_ON_ONCE(item && !radix_tree_exceptional_entry(item))) {
 			error = -EEXIST;
 			break;
 		}
 
-		__radix_tree_replace(&address_space->i_pages,
-				     node, slot, page + i, NULL);
+		__radix_tree_replace(&address_space->i_pages, node, slot,
+				     page + i, NULL);
 
 		if (shadowp) {
 			VM_BUG_ON(i);
@@ -177,14 +177,14 @@ int __add_to_swap_cache(struct page *page, swp_entry_t entry, void **shadowp)
 	return error;
 }
 
-int add_to_swap_cache(struct page *page, swp_entry_t entry,
-		      gfp_t gfp, void **shadowp)
+
+int add_to_swap_cache(struct page *page, swp_entry_t entry, gfp_t gfp_mask)
 {
 	int error;
 
-	error = radix_tree_maybe_preload_order(gfp, compound_order(page));
+	error = radix_tree_maybe_preload_order(gfp_mask, compound_order(page));
 	if (!error) {
-		error = __add_to_swap_cache(page, entry, shadowp);
+		error = __add_to_swap_cache(page, entry, NULL);
 		radix_tree_preload_end();
 	}
 	return error;
@@ -204,7 +204,7 @@ void __delete_from_swap_cache(struct page *page, void *shadow)
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(!PageSwapCache(page), page);
 	VM_BUG_ON_PAGE(PageWriteback(page), page);
-	VM_BUG_ON(shadow && !xa_is_value(shadow));
+	VM_BUG_ON(shadow && !radix_tree_exceptional_entry(shadow));
 
 	entry.val = page_private(page);
 	address_space = swap_address_space(entry);
@@ -249,7 +249,7 @@ int add_to_swap(struct page *page)
 		return 0;
 
 	/*
-	 * XArray node allocations from PF_MEMALLOC contexts could
+	 * Radix-tree node allocations from PF_MEMALLOC contexts could
 	 * completely exhaust the page allocator. __GFP_NOMEMALLOC
 	 * stops emergency reserves from being allocated.
 	 *
@@ -260,7 +260,8 @@ int add_to_swap(struct page *page)
 	 * Add it to the swap cache.
 	 */
 	err = add_to_swap_cache(page, entry,
-			__GFP_HIGH|__GFP_NOMEMALLOC|__GFP_NOWARN, NULL);
+			__GFP_HIGH|__GFP_NOMEMALLOC|__GFP_NOWARN);
+	/* -ENOMEM radix-tree allocation failure */
 	if (err)
 		/*
 		 * add_to_swap_cache() doesn't return -EEXIST, so we can safely
@@ -325,7 +326,7 @@ void clear_shadow_from_swap_cache(int type, unsigned long begin,
 					 &iter, curr) {
 			item = radix_tree_deref_slot_protected(slot,
 					&address_space->i_pages.xa_lock);
-			if (xa_is_value(item))
+			if (radix_tree_exceptional_entry(item))
 				radix_tree_iter_delete(&address_space->i_pages,
 						       &iter, slot);
 			if (iter.next_index > end)

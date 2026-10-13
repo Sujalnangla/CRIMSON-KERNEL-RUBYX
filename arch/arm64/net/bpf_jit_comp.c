@@ -806,7 +806,10 @@ emit_cond_jmp:
 		u64 imm64;
 
 		imm64 = (u64)insn1.imm << 32 | (u32)imm;
-		emit_a64_mov_i64(dst, imm64, ctx);
+		if (bpf_pseudo_func(insn))
+			emit_addr_mov_i64(dst, imm64, ctx);
+		else
+			emit_a64_mov_i64(dst, imm64, ctx);
 
 		return 1;
 	}
@@ -1148,15 +1151,12 @@ out:
 					   tmp : orig_prog);
 	return prog;
 }
-
-u64 bpf_jit_alloc_exec_limit(void)
-{
-	return VMALLOC_END - VMALLOC_START;
-}
-
 void *bpf_jit_alloc_exec(unsigned long size)
 {
-	return vmalloc(size);
+	return __vmalloc_node_range(size, PAGE_SIZE, BPF_JIT_REGION_START,
+				    BPF_JIT_REGION_END, GFP_KERNEL,
+				    PAGE_KERNEL, 0, NUMA_NO_NODE,
+				    __builtin_return_address(0));
 }
 
 void bpf_jit_free_exec(void *addr)
