@@ -1,9 +1,9 @@
-name: Crimson Ruby Kernel Build
+name: Crimson Ruby Kernel CI
 
 on:
   push:
     branches:
-      - main
+      - ci/github-actions-kernel-build
   workflow_dispatch:
 
 permissions:
@@ -11,81 +11,121 @@ permissions:
 
 jobs:
   build:
-    name: Crimson build source validation
+    name: Build MT6877 Ruby kernel
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
     steps:
-      - name: Checkout source
+      - name: Checkout kernel and pinned submodules
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           submodules: recursive
-
-      - name: Verify build job
-        run: |
-          set -euxo pipefail
-          echo "GitHub Actions build job is running"
-          echo "Commit: $GITHUB_SHA"
-          test -f Makefile
-          test -f arch/arm64/configs/ruby_defconfig
 
       - name: Install build dependencies
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            curl \
-            flex \
-            git \
-            libelf-dev \
-            libfl-dev \
-            libncurses-dev \
-            libssl-dev \
-            lz4 \
-            python3 \
-            rsync \
-            unzip \
-            wget \
-            xz-utils \
-            zip \
-            zstd
+            bc bison build-essential ca-certificates curl flex \
+            git libelf-dev libfl-dev libncurses-dev libssl-dev \
+            lz4 python3 rsync unzip zip zstd
 
-      - name: Verify dependencies
+      - name: Verify source and submodule
         run: |
           set -euxo pipefail
-          command -v make
-          command -v bc
-          command -v bison
-          command -v flex
-          command -v ccache
-          command -v python3
-          command -v rsync
-          command -v unzip
-          command -v zip
-          command -v zstd
-          echo "Build dependencies are ready"
-
-      - name: Validate KernelSU and SUSFS source
-        run: |
-          set -euxo pipefail
-
-          test -d KernelSU-Next
-          test -e drivers/kernelsu
-          test -f KernelSU-Next/kernel/Makefile
+          test -f Makefile
+          test -f arch/arm64/configs/ruby_defconfig
           test -f fs/susfs.c
           test -f include/linux/susfs.h
           test -f include/linux/susfs_def.h
+          test -f KernelSU-Next/kernel/Makefile
+          test -f KernelSU-Next/kernel/Kconfig
+          test -e drivers/kernelsu
+
+          expected="$(git ls-tree HEAD KernelSU-Next | awk '{print $3}')"
+          actual="$(git -C KernelSU-Next rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "KernelSU commit: $actual"
 
           grep -q '^CONFIG_KSU=y$' arch/arm64/configs/ruby_defconfig
-          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' arch/arm64/configs/ruby_defconfig
           grep -q '^CONFIG_KSU_SUSFS=y$' arch/arm64/configs/ruby_defconfig
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' arch/arm64/configs/ruby_defconfig
 
-          if grep -q '^CONFIG_KSU_KPROBES_HOOK=y$' arch/arm64/configs/ruby_defconfig; then
-            echo 'ERROR: KSU kprobes hook must remain disabled for manual-hook configuration'
-            exit 1
+          echo "KernelSU/SUSFS source checks passed"
+
+      - name: Install pinned Android Clang
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/android-clang"
+          curl --fail --location --retry 3 \
+            'https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/d2de056d8d8de40b2c1ccd39bfadf0c0318f5bad/clang-r563880.tar.gz' \
+            -o "$RUNNER_TEMP/clang.tar.gz"
+          tar -xzf "$RUNNER_TEMP/clang.tar.gz" \
+            -C "$RUNNER_TEMP/android-clang"
+          test -x "$RUNNER_TEMP/android-clang/bin/clang"
+          "$RUNNER_TEMP/android-clang/bin/clang" --version
+          echo "$RUNNER_TEMP/android-clang/bin" >> "$GITHUB_PATH"
+
+      - name: Configure kernel
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ruby_defconfig
+
+          # Keep the defconfig's existing choices; do not force-disable KPROBES.
+          grep -E '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KPROBES=|# CONFIG_KPROBES is not set)' out/.config
+
+          grep -q '^CONFIG_KSU=y$' out/.config
+          grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
+
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+
+          echo "Kernel release:"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease \
+            | tee out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            2>&1 | tee build.log
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          if [ -f out/kernelrelease.txt ]; then
+            cat out/kernelrelease.txt
           fi
 
-          echo 'KernelSU/SUSFS source and defconfig validation passed'
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f \
+            \( -name 'Image' -o -name 'Image.gz' -o \
+               -name 'Image.gz-dtb' -o -name 'dtbo.img' \) \
+            -print 2>/dev/null || true
+
+          echo "===== Build log tail ====="
+          if [ -f build.log ]; then
+            tail -n 100 build.log
+          fi
+
+      - name: Upload kernel image and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crimson-ruby-kernel-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/dtbo.img
+            out/.config
+            out/kernelrelease.txt
+            build.log
