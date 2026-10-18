@@ -42,6 +42,10 @@
 #include <linux/build_bug.h>
 
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+#include <linux/susfs_def.h>
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 extern int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode,
 							  char __user *buffer, int buflen);
 #endif
