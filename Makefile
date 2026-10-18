@@ -3,7 +3,7 @@ VERSION = 4
 PATCHLEVEL = 19
 SUBLEVEL = 325
 EXTRAVERSION =
-NAME = "People's Front"
+NAME = "Crimson Ruby Kernel"
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
