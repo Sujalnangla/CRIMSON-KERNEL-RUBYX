@@ -1109,26 +1109,7 @@ static void mld_dad_stop_timer(struct inet6_dev *idev)
 		__in6_dev_put(idev);
 }
 
-static void mld_ifc_stop_timer(struct inet6_dev *idev)
-{
-	idev->mc_ifc_count = 0;
-	if (del_timer(&idev->mc_ifc_timer))
-		__in6_dev_put(idev);
-}
 
-static void mld_dad_start_timer(struct inet6_dev *idev, unsigned long delay)
-{
-	unsigned long tv = prandom_u32() % delay;
-
-	if (!mod_timer(&idev->mc_dad_timer, jiffies+tv+2))
-		in6_dev_hold(idev);
-}
-
-static void mld_dad_stop_timer(struct inet6_dev *idev)
-{
-	if (del_timer(&idev->mc_dad_timer))
-		__in6_dev_put(idev);
-}
 
 /*
  *	IGMP handling (alias multicast ICMPv6 messages)
