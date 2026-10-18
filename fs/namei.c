@@ -41,6 +41,11 @@
 #include <linux/uaccess.h>
 #include <linux/build_bug.h>
 
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+extern int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode,
+							  char __user *buffer, int buflen);
+#endif
+
 #include "internal.h"
 #include "mount.h"
 
@@ -5049,6 +5054,15 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 		if (IS_ERR(link))
 			return PTR_ERR(link);
 	}
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
+		res = susfs_open_redirect_spoof_vfs_readlink(inode, buffer, buflen);
+		if (res != -ENOENT) {
+			do_delayed_call(&done);
+			return res;
+		}
+	}
+#endif
 	res = readlink_copy(buffer, buflen, link);
 	do_delayed_call(&done);
 	return res;
@@ -5076,17 +5090,6 @@ const char *vfs_get_link(struct dentry *dentry, struct delayed_call *done)
 		if (!res)
 			res = inode->i_op->get_link(dentry, inode, done);
 	}
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-	if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
-		res = susfs_open_redirect_spoof_vfs_readlink(inode, buffer, buflen);
-		if (!res) {
-			do_delayed_call(&done);
-			return res;
-		}
-	}
-#endif
-	res = readlink_copy(buffer, buflen, link);
-	do_delayed_call(&done);
 	return res;
 }
 EXPORT_SYMBOL(vfs_get_link);
