@@ -407,21 +407,6 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 			seq_pad(m, ' ');
 			seq_print_vma_name(m, vma);
 		}
-
-		kaddr = (const char *)kmap(page);
-		len = min(max_len, PAGE_SIZE - page_offset);
-		write_len = strnlen(kaddr + page_offset, len);
-		seq_write(m, kaddr + page_offset, write_len);
-		kunmap(page);
-		put_page(page);
-
-		/* if strnlen hit a null terminator then we're done */
-		if (write_len != len)
-			break;
-
-		max_len -= len;
-		page_offset = 0;
-		page_start_vaddr += PAGE_SIZE;
 	}
 
 done:
