@@ -39,6 +39,7 @@ enum UID_SCHEME {
 /**********/
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
+bool susfs_is_inode_sus_path(struct inode *inode);
 struct st_susfs_sus_path {
 	char                                    target_pathname[SUSFS_MAX_LEN_PATHNAME];
 	int                                     err;
