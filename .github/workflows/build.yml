@@ -39,6 +39,10 @@ jobs:
           test -f fs/susfs.c
           test -f include/linux/susfs.h
           test -f include/linux/susfs_def.h
+          test -f drivers/cpuidle/governors/teo.c
+          grep -q '^CONFIG_CPU_IDLE_GOV_TEO=y$' arch/arm64/configs/ruby_defconfig
+          grep -qx -- '-Crimson-ruby' localversion-crimson
+          grep -q '^NAME = "Crimson Ruby Kernel"$' Makefile
           test -f KernelSU-Next/kernel/Makefile
           test -f KernelSU-Next/kernel/Kconfig
           test -e drivers/kernelsu
@@ -81,6 +85,8 @@ jobs:
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
 
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -q '^CONFIG_CPU_IDLE_GOV_TEO=y$' out/.config
+          echo "TEO governor: enabled in final config"
 
           echo "Kernel release:"
           make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease \
