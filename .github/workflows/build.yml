@@ -47,9 +47,16 @@ jobs:
           test -f KernelSU-Next/kernel/Kconfig
           test -e drivers/kernelsu
 
+          # The pinned submodule commit is tagged v3.4.0-legacy-susfs-v2.
+          # Fetch tags explicitly because checkout uses a shallow submodule clone.
+          git -C KernelSU-Next fetch --force --tags origin
+
           expected="$(git ls-tree HEAD KernelSU-Next | awk '{print $3}')"
           actual="$(git -C KernelSU-Next rev-parse HEAD)"
           test "$actual" = "$expected"
+          ksu_tag="$(git -C KernelSU-Next describe --tags --exact-match HEAD)"
+          test "$ksu_tag" = "v3.4.0-legacy-susfs-v2"
+          echo "KernelSU-Next release: $ksu_tag"
           echo "KernelSU commit: $actual"
 
           grep -q '^CONFIG_KSU=y$' arch/arm64/configs/ruby_defconfig
