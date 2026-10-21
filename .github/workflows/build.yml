@@ -26,12 +26,12 @@ jobs:
       - name: Verify build job
         run: |
           set -euxo pipefail
-          echo "GitHub Actions build job is running"
+          echo "GitHub Actions source-validation job is running"
           echo "Commit: $GITHUB_SHA"
           test -f Makefile
           test -f arch/arm64/configs/ruby_defconfig
 
-      - name: Install build dependencies
+      - name: Install validation dependencies
         run: |
           set -euxo pipefail
           sudo apt-get update
@@ -69,7 +69,7 @@ jobs:
           command -v unzip
           command -v zip
           command -v zstd
-          echo "Build dependencies are ready"
+          echo "Validation dependencies are ready"
 
       - name: Validate KernelSU and SUSFS source
         run: |
@@ -84,13 +84,7 @@ jobs:
 
           grep -q '^CONFIG_KSU=y$' arch/arm64/configs/ruby_defconfig
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' arch/arm64/configs/ruby_defconfig
-          grep -q '^CONFIG_KSU_SUSFS=y
-            echo 'ERROR: KSU kprobes hook must remain disabled for manual-hook configuration'
-            exit 1
-          fi
-
-          echo 'KernelSU/SUSFS source and defconfig validation passed'
- arch/arm64/configs/ruby_defconfig
+          grep -q '^CONFIG_KSU_SUSFS=y$' arch/arm64/configs/ruby_defconfig
 
           # Validate manual-hook call sites against the pinned KernelSU-Next API.
           grep -q 'ksu_handle_execveat_ksud(&fd, &filename, &argv, &envp, &flags)' fs/exec.c
@@ -110,15 +104,9 @@ jobs:
             exit 1
           fi
 
-          if grep -q '^CONFIG_KSU_KPROBES_HOOK=y
+          if grep -q '^CONFIG_KSU_KPROBES_HOOK=y$' arch/arm64/configs/ruby_defconfig; then
             echo 'ERROR: KSU kprobes hook must remain disabled for manual-hook configuration'
             exit 1
           fi
 
-          echo 'KernelSU/SUSFS source and defconfig validation passed'
- arch/arm64/configs/ruby_defconfig; then
-            echo 'ERROR: KSU kprobes hook must remain disabled for manual-hook configuration'
-            exit 1
-          fi
-
-          echo 'KernelSU/SUSFS source and defconfig validation passed'
+          echo 'KernelSU/SUSFS manual-hook source validation passed'
