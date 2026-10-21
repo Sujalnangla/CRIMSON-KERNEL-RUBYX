@@ -84,6 +84,11 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ruby_defconfig
 
+          # Remove the old PervySage local-version suffix from generated .config.
+          scripts/config --file out/.config --set-str CONFIG_LOCALVERSION ""
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          ! grep -q '^CONFIG_LOCALVERSION=".*PervySage' out/.config
+
           # Keep the defconfig's existing choices; do not force-disable KPROBES.
           grep -E '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KPROBES=|# CONFIG_KPROBES is not set)' out/.config
 
@@ -98,6 +103,7 @@ jobs:
           echo "Kernel release:"
           make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease \
             | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
 
       - name: Compile kernel
         run: |
