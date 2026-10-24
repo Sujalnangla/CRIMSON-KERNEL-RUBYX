@@ -27,24 +27,29 @@
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
 extern void susfs_sus_kstat_spoof_inotify_fdinfo(unsigned long *out_target_ino, dev_t *out_target_dev);
-#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+
 #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
+static void show_fdinfo(struct seq_file *m, struct file *f,
+			void (*show)(struct seq_file *m,
 				     struct fsnotify_mark *mark,
 					 struct file *file))
 #else
-		show(m, mark, f);
-#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 static void show_fdinfo(struct seq_file *m, struct file *f,
 			void (*show)(struct seq_file *m,
 				     struct fsnotify_mark *mark))
+#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 {
 	struct fsnotify_group *group = f->private_data;
 	struct fsnotify_mark *mark;
 
 	mutex_lock(&group->mark_mutex);
 	list_for_each_entry(mark, &group->marks_list, g_list) {
+#if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
+		show(m, mark, f);
+#else
 		show(m, mark);
+#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 		if (seq_has_overflowed(m))
 			break;
 	}
@@ -90,6 +95,7 @@ static void show_mark_fhandle(struct seq_file *m, struct inode *inode)
 static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark, struct file *file)
 #else
 static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)
+#endif
 {
 	struct inotify_inode_mark *inode_mark;
 	struct inode *inode;
@@ -130,7 +136,10 @@ static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)
 				dpath = d_path(&file->f_path, pathname, PAGE_SIZE);
 				if (!dpath) {
 					goto out_kfree;
+				}
 				if (kern_path(dpath, 0, &path)) {
+					goto out_kfree;
+				}
 				if (!d_backing_inode(path.dentry)) {
 					goto out_path_put;
 				}
@@ -144,7 +153,9 @@ static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)
 				iput(inode);
 				return;
 out_path_put:
+				path_put(&path);
 out_kfree:
+				kfree(pathname);
 			}
 		}
 orig_flow:
