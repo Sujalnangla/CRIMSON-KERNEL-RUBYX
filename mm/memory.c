@@ -81,6 +81,9 @@
 #include <asm/tlbflush.h>
 #include <linux/pgtable.h>
 
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+#include <linux/susfs_def.h>
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 #include "internal.h"
 
 #if defined(LAST_CPUPID_NOT_IN_PAGE_FLAGS) && !defined(CONFIG_COMPILE_TEST)
@@ -4504,9 +4507,15 @@ int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 	if (mmap_read_lock_killable(mm))
 		return 0;
 
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	vma = find_vma(mm, addr);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 	/* ignore errors, just check how much was successfully transferred */
 	while (len) {
 		int bytes, ret, offset;
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		if (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 		void *maddr;
 		struct page *page = NULL;
 
