@@ -667,6 +667,7 @@ static int s_show(struct seq_file *m, void *p)
 	} else
 #ifndef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 		seq_printf(m, "%px %c %s\n", value,
+			   iter->type, iter->name);
 #else
 	{
 		if (susfs_starts_with(iter->name, "ksu_") ||
@@ -691,9 +692,9 @@ static int s_show(struct seq_file *m, void *p)
 			return 0;
 		}
 		seq_printf(m, "%px %c %s\n", value,
+			   iter->type, iter->name);
 	}
 #endif
-			   iter->type, iter->name);
 	return 0;
 }
 
