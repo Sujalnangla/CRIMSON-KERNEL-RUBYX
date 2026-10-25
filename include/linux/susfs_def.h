@@ -124,6 +124,10 @@ int data_type, susfs_fname_t file_name, u32 cookie)
 #define FUSE_SUPER_MAGIC 0x65735546
 #endif
 
+static inline bool susfs_is_current_app_uid(void) {
+	return ((current_uid().val % 100000) >= 10000);
+}
+
 static inline bool susfs_is_current_proc_umounted(void) {
 	return test_ti_thread_flag(&current->thread_info, TIF_PROC_UMOUNTED);
 }
