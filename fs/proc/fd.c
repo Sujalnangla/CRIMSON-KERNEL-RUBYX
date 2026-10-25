@@ -67,9 +67,6 @@ static int seq_show(struct seq_file *m, void *v)
 	if (susfs_is_current_app_uid()) {
 		struct inode *inode = file_inode(file);
 		bool is_fuse = false;
-#if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
-bypass_orig_flow:
-#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 		if (susfs_is_inode_sus_kstat(inode, &is_fuse)) {
 			int mnt_id = real_mount(file->f_path.mnt)->mnt_id;
 			unsigned long ino = inode->i_ino;
@@ -110,7 +107,9 @@ bypass_orig_flow:
 			kfree(pathname);
 			goto bypass_orig_flow;
 out_path_put:
+			path_put(&path);
 out_kfree:
+			kfree(pathname);
 			goto orig_flow;
 		}
 	}
@@ -120,6 +119,9 @@ orig_flow:
 		   (long long)file->f_pos, f_flags,
 		   real_mount(file->f_path.mnt)->mnt_id);
 
+#if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
+bypass_orig_flow:
+#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 	show_fd_locks(m, file, files);
 	if (seq_has_overflowed(m))
 		goto out;
