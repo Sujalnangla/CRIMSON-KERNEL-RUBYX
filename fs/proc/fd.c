@@ -95,7 +95,10 @@ bypass_orig_flow:
 			dpath = d_path(&file->f_path, pathname, PAGE_SIZE);
 			if (!dpath) {
 				goto out_kfree;
+			}
 			if (kern_path(dpath, 0, &path)) {
+				goto out_kfree;
+			}
 			if (!d_backing_inode(path.dentry)) {
 				goto out_path_put;
 			}
