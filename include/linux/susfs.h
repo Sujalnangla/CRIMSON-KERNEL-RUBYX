@@ -98,6 +98,8 @@ struct st_susfs_sus_kstat {
 struct st_susfs_sus_kstat_hlist {
 	unsigned long                           target_ino;
 	unsigned long                           target_dev;
+	struct kstatfs                          spoofed_kstatfs;
+	int                                     spoofed_mnt_id;
 	bool                                    is_fuse;
 	struct st_susfs_sus_kstat               info;
 	struct hlist_node                       node;
