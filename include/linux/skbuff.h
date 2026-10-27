@@ -1523,6 +1523,23 @@ static inline int skb_unclone(struct sk_buff *skb, gfp_t pri)
 	return 0;
 }
 
+/* Keep skb->truesize unchanged while un-cloning a socket buffer. */
+static inline int skb_unclone_keeptruesize(struct sk_buff *skb, gfp_t pri)
+{
+	might_sleep_if(gfpflags_allow_blocking(pri));
+
+	if (skb_cloned(skb)) {
+		unsigned int save = skb->truesize;
+		int ret;
+
+		ret = pskb_expand_head(skb, 0, 0, pri);
+		skb->truesize = save;
+		return ret;
+	}
+
+	return 0;
+}
+
 /**
  *	skb_header_cloned - is the header a clone
  *	@skb: buffer to check
