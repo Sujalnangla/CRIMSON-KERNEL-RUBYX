@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ci/github-actions-kernel-build
+      - fix/bootloop-open-redirect-test
   workflow_dispatch:
 
 permissions:
