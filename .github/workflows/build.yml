@@ -119,8 +119,28 @@ jobs:
           echo "===== Kernel release ====="
           cat out/kernelrelease.txt 2>/dev/null || true
           echo "===== Available boot images ====="
-          find out/arch/arm64/boot -maxdepth 2 -type f \\
-            \\( -name 'Image' -o -name 'Image.gz' -o -name 'Image.gz-dtb' -o -name 'dtbo.img' \\) -print 2>/dev/null || true
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image\\.gz|Image\\.gz-dtb|dtbo\\.img)
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel image and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crimson-ruby-kernel-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/dtbo.img
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ || true
           echo "===== Build log tail ====="
           tail -n 100 build.log 2>/dev/null || true
 
