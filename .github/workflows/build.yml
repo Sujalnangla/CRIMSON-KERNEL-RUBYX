@@ -115,6 +115,66 @@ jobs:
             LLVM_IAS=1 \
             2>&1 | tee build.log
 
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config || true
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          if [ -f out/kernelrelease.txt ]; then
+            cat out/kernelrelease.txt
+          fi
+
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f \
+            \( -name 'Image' -o -name 'Image.gz' -o \
+               -name 'Image.gz-dtb' -o -name 'dtbo.img' \) \
+            -print 2>/dev/null || true
+
+          echo "===== Build log tail ====="
+          if [ -f build.log ]; then
+            tail -n 100 build.log
+          fi
+
+      - name: Upload kernel image and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crimson-ruby-kernel-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/dtbo.img
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config || true
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null || true
+            echo
+            echo "===== Toolchain ====="
+            clang --version | head -n 2
+          } > out/crash-diagnostics.txt
+
+          test -s out/vmlinux
+          test -s out/System.map
+          echo "Unstripped vmlinux and System.map are ready for symbol-level crash analysis."
+
       - name: Report build output
         if: always()
         run: |
