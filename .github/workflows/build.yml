@@ -89,6 +89,71 @@ jobs:
           set -o pipefail
           make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
 
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          # begin properties
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          # begin attributes
+          attributes() {
+          set_perm_recursive 0 0 755 644 $ramdisk/*;
+          set_perm_recursive 0 0 750 750 $ramdisk/init* $ramdisk/sbin;
+          } # end attributes
+
+          ## boot shell variables
+          block=boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+
+          # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
+          . tools/ak3-core.sh && attributes;
+
+          # boot install
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Collect crash analysis symbols and configuration
         if: always()
         run: |
@@ -123,17 +188,14 @@ jobs:
           echo "===== Build log tail ====="
           tail -n 100 build.log 2>/dev/null || true
 
-      - name: Upload kernel image and build diagnostics
+      - name: Upload kernel debug symbols and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crimson-ruby-kernel-${{ github.sha }}
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
           if-no-files-found: warn
+          compression-level: 0
           path: |
-            out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/Image.gz-dtb
-            out/arch/arm64/boot/dtbo.img
             out/vmlinux
             out/System.map
             out/.config
