@@ -102,7 +102,6 @@ jobs:
           ## osm0sis @ xda-developers
 
           ### AnyKernel setup
-          # begin properties
           properties() { '
           kernel.string=Crimson Kernel - By Shu
           do.devicecheck=0
@@ -115,22 +114,18 @@ jobs:
           '; } # end properties
 
           ### AnyKernel install
-          # begin attributes
-          attributes() {
-          set_perm_recursive 0 0 755 644 $ramdisk/*;
-          set_perm_recursive 0 0 750 750 $ramdisk/init* $ramdisk/sbin;
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
           } # end attributes
 
-          ## boot shell variables
-          block=boot;
-          is_slot_device=1;
-          ramdisk_compression=auto;
-          patch_vbmeta_flag=auto;
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
 
-          # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
-          . tools/ak3-core.sh && attributes;
+          . tools/ak3-core.sh;
 
-          # boot install
           dump_boot;
           write_boot;
           ## end boot install
