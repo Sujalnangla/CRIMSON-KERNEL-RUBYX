@@ -119,7 +119,7 @@ jobs:
           echo "===== Kernel release ====="
           cat out/kernelrelease.txt 2>/dev/null || true
           echo "===== Available boot images ====="
-          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image\\.gz|Image\\.gz-dtb|dtbo\\.img)
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
           echo "===== Build log tail ====="
           tail -n 100 build.log 2>/dev/null || true
 
