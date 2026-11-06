@@ -175,7 +175,7 @@ jobs:
             clang --version 2>/dev/null | head -n 2
             echo
             echo "===== Symbol files ====="
-            ls -lh out/vmlinux out/System.map 2>/dev/null
+            ls -lh out/vmlinux out/System.map 2>/dev/null || true
           } > out/crash-diagnostics.txt
 
       - name: Report build output
