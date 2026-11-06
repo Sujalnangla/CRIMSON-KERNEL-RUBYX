@@ -85,13 +85,13 @@ jobs:
       - name: Compile kernel
         run: |
           set -o pipefail
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 Image.gz-dtb 2>&1 | tee build.log
 
       - name: Package flashable AnyKernel3 ZIP
         if: success()
         run: |
           set -euxo pipefail
-          test -s out/arch/arm64/boot/Image.gz
+          test -s out/arch/arm64/boot/Image.gz-dtb
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
           cd "$RUNNER_TEMP/AnyKernel3"
 
@@ -129,7 +129,7 @@ jobs:
           ## end boot install
           AK3
 
-          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
           rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
           mkdir -p "$GITHUB_WORKSPACE/out/packages"
           zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
