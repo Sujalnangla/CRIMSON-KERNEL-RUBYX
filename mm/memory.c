@@ -2901,6 +2901,8 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	struct page *page = NULL, *swapcache;
 	struct mem_cgroup *memcg;
 	swp_entry_t entry;
+	struct swap_info_struct *si;
+	bool skip_swapcache = false;
 	pte_t pte;
 	int locked;
 	int exclusive = 0;
@@ -2933,15 +2935,21 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
+
+	/*
+	 * Decide whether to use the synchronous-I/O path before looking up
+	 * the swap cache. Another fault can populate the cache and decrement
+	 * the swap count between the lookup and this decision.
+	 */
+	si = swp_swap_info(entry);
+	if (si->flags & SWP_SYNCHRONOUS_IO && __swap_count(si, entry) == 1)
+		skip_swapcache = true;
+
 	page = lookup_swap_cache(entry, vma, vmf->address);
 	swapcache = page;
 
 	if (!page) {
-		struct swap_info_struct *si = swp_swap_info(entry);
-
-		if (si->flags & SWP_SYNCHRONOUS_IO &&
-				__swap_count(si, entry) == 1) {
-			/* skip swapcache */
+		if (skip_swapcache) {
 			page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma,
 							vmf->address);
 			if (page) {
