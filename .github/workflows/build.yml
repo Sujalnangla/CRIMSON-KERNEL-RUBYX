@@ -77,9 +77,840 @@ jobs:
           grep -E '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KSU_SYSCALL_TABLE_HOOK=|CONFIG_KSU_KPROBES_HOOK=|CONFIG_KPROBES=|# CONFIG_KPROBES is not set)' out/.config
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
-          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_INFO|CONFIG_DEBUG_CREDENTIALS|CONFIG_PRINTK_TIME|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS|CONFIG_KSU_SUSFS_OPEN_REDIRECT|CONFIG_KFENCE|CONFIG_SCHEDSTATS|CONFIG_FAULT_INJECTION)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_PRINTK_TIME|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS_OPEN_REDIRECT|CONFIG_KFENCE|CONFIG_SCHEDSTATS|CONFIG_FAULT_INJECTION) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
+          grep -q '^# CONFIG_KSU_SUSFS_OPEN_REDIRECT is not set
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
+          grep -q '^# CONFIG_KFENCE is not set
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
+          grep -q '^CONFIG_PRINTK_TIME=y
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
+          grep -q '^# CONFIG_SCHEDSTATS is not set
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
+          grep -q '^# CONFIG_FAULT_INJECTION is not set
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          grep -q '^CONFIG_CPU_IDLE_GOV_TEO=y$' out/.config
+          grep -q '^CONFIG_CPU_IDLE_GOV_TEO=y
+          echo "TEO governor: enabled in final config"
+          make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
+          ! grep -qi 'PervySage' out/kernelrelease.txt
+
+      - name: Compile kernel
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+
+      - name: Package flashable AnyKernel3 ZIP
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$RUNNER_TEMP/AnyKernel3"
+          cd "$RUNNER_TEMP/AnyKernel3"
+
+          cat > anykernel.sh <<'AK3'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=Crimson Kernel - By Shu
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          supported.versions=
+          supported.patchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          ## end boot install
+          AK3
+
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz" ./Image.gz
+          rm -f modules/system/lib/modules/placeholder ramdisk/placeholder patch/placeholder
+          mkdir -p "$GITHUB_WORKSPACE/out/packages"
+          zip -r9 "$GITHUB_WORKSPACE/out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+          test -s out/packages/Crimson-Ruby-${GITHUB_SHA::7}.zip
+
+      - name: Upload flashable AnyKernel3 ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Flashable-${{ github.sha }}
+          path: out/packages/Crimson-Ruby-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Collect crash analysis symbols and configuration
+        if: always()
+        run: |
+          set +e
+          mkdir -p out
+          {
+            echo "Kernel commit: $GITHUB_SHA"
+            echo "KernelSU-Next commit: $(git -C KernelSU-Next rev-parse HEAD 2>/dev/null)"
+            echo "KernelSU-Next tag: $(git -C KernelSU-Next describe --tags --exact-match HEAD 2>/dev/null)"
+            echo
+            echo "===== Relevant generated configuration ====="
+            grep -E '^(CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_SHADOW_CALL_STACK|CONFIG_KPROBES|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_KPROBES_HOOK|CONFIG_KSU_SUSFS)=' out/.config 2>/dev/null
+            grep -E '^# (CONFIG_DEBUG_CREDENTIALS|CONFIG_CFI_CLANG|CONFIG_THINLTO|CONFIG_KSU_KPROBES_HOOK) is not set' out/.config 2>/dev/null
+            echo
+            echo "===== Kernel release ====="
+            cat out/kernelrelease.txt 2>/dev/null
+            echo
+            echo "===== Toolchain ====="
+            clang --version 2>/dev/null | head -n 2
+            echo
+            echo "===== Symbol files ====="
+            ls -lh out/vmlinux out/System.map 2>/dev/null
+          } > out/crash-diagnostics.txt
+
+      - name: Report build output
+        if: always()
+        run: |
+          echo "===== Kernel release ====="
+          cat out/kernelrelease.txt 2>/dev/null || true
+          echo "===== Available boot images ====="
+          find out/arch/arm64/boot -maxdepth 2 -type f -print 2>/dev/null | grep -E '/(Image|Image[.]gz|Image[.]gz-dtb|dtbo[.]img)$' || true
+          echo "===== Build log tail ====="
+          tail -n 100 build.log 2>/dev/null || true
+
+      - name: Upload kernel debug symbols and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/crash-diagnostics.txt
+            out/kernelrelease.txt
+            build.log
+ out/.config
           echo "TEO governor: enabled in final config"
           make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease | tee out/kernelrelease.txt
           ! grep -qi 'PervySage' out/kernelrelease.txt
