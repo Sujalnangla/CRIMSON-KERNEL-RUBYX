@@ -484,3 +484,6 @@ CONFIG_KSU_SUSFS_SUS_MAP=y
 
 # Use TEO over the MediaTek idle governors on MT6877.
 CONFIG_CPU_IDLE_GOV_TEO=y
+
+# Keep the MediaTek SELinux AEE audit hook disabled.
+# CONFIG_MTK_SELINUX_AEE_WARNING is not set
