@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ci/github-actions-kernel-build
+      - test/ksu-selinux-avc-kprobe-off
   workflow_dispatch:
 
 permissions:
@@ -77,6 +78,22 @@ jobs:
           test -x "$RUNNER_TEMP/android-clang/bin/clang"
           "$RUNNER_TEMP/android-clang/bin/clang" --version
           echo "$RUNNER_TEMP/android-clang/bin" >> "$GITHUB_PATH"
+
+      - name: Disable KSU SELinux AVC Kprobe in manual-hook mode
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("KernelSU-Next/kernel/feature/selinux_hide.c")
+          data = path.read_bytes()
+          old = b"#if defined(CONFIG_KPROBES)"
+          new = b"#if defined(CONFIG_KPROBES) && !defined(CONFIG_KSU_MANUAL_HOOK)"
+          count = data.count(old)
+          if count != 3:
+              raise SystemExit(f"Expected 3 Kprobe guards in selinux_hide.c, found {count}")
+          path.write_bytes(data.replace(old, new))
+          print("Patched KSU SELinux-hide: AVC Kprobe is skipped in manual-hook mode")
+          PY
+          grep -Fq '#if defined(CONFIG_KPROBES) && !defined(CONFIG_KSU_MANUAL_HOOK)' KernelSU-Next/kernel/feature/selinux_hide.c
 
       - name: Configure kernel
         run: |
