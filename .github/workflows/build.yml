@@ -125,11 +125,16 @@ jobs:
           test -s out/vmlinux
           test -s out/System.map
 
-      - name: Compress matching crash symbols
+      - name: Generate SELinux crash disassembly
         if: always() && hashFiles('out/vmlinux') != ''
         run: |
-          zstd -T0 -10 -f out/vmlinux -o out/vmlinux.zst
-          test -s out/vmlinux.zst
+          set -euxo pipefail
+          llvm-objdump -d --disassemble-symbols=selinux_inode_permission out/vmlinux > out/selinux_inode_permission.disasm
+          llvm-objdump -d --disassemble-symbols=slow_avc_audit out/vmlinux > out/slow_avc_audit.disasm
+          llvm-nm -n out/vmlinux | grep -E 'selinux_inode_permission|slow_avc_audit' > out/selinux-symbols.txt
+          test -s out/selinux_inode_permission.disasm
+          test -s out/slow_avc_audit.disasm
+          test -s out/selinux-symbols.txt
 
       - name: Upload original-config crash symbols
         if: always()
@@ -139,7 +144,9 @@ jobs:
           if-no-files-found: warn
           compression-level: 0
           path: |
-            out/vmlinux.zst
+            out/selinux_inode_permission.disasm
+            out/slow_avc_audit.disasm
+            out/selinux-symbols.txt
             out/System.map
             out/.config
             out/kernelrelease.txt
