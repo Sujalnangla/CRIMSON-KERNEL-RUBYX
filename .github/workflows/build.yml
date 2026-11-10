@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ci/github-actions-kernel-build
+      - test/disable-ksu-selinux-audit-kprobe
   workflow_dispatch:
 
 permissions:
@@ -84,17 +85,17 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ruby_defconfig
 
-          # Remove the old PervySage local-version suffix from generated .config.
+          # Isolate KernelSU's SELinux slow_avc_audit kprobe on this test branch.
+          # Keep KernelSU, SUSFS, and manual syscall hooks enabled.
           scripts/config --file out/.config --set-str CONFIG_LOCALVERSION ""
+          scripts/config --file out/.config --disable KPROBES
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           ! grep -q '^CONFIG_LOCALVERSION=".*PervySage' out/.config
-
-          # Keep the defconfig's existing choices; do not force-disable KPROBES.
-          grep -E '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KSU_SYSCALL_TABLE_HOOK=|CONFIG_KSU_KPROBES_HOOK=|CONFIG_KPROBES=|# CONFIG_KPROBES is not set)' out/.config
 
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
+          grep -q '^# CONFIG_KPROBES is not set$' out/.config
 
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           grep -q '^CONFIG_CPU_IDLE_GOV_TEO=y$' out/.config
@@ -114,6 +115,19 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             2>&1 | tee build.log
+
+      - name: Upload SELinux-kprobe isolation symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Kprobe-Isolation-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            build.log
 
       - name: Report build output
         if: always()
