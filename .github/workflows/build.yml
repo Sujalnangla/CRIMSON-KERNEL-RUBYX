@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ci/github-actions-kernel-build
+      - debug/rebuild-original-selinux-symbols
   workflow_dispatch:
 
 permissions:
@@ -84,10 +85,17 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ruby_defconfig
 
-          # Remove the old PervySage local-version suffix from generated .config.
+          # Rebuild the crashing source revision with debug symbols only.
+          # Preserve the original runtime feature configuration for address matching.
           scripts/config --file out/.config --set-str CONFIG_LOCALVERSION ""
+          scripts/config --file out/.config --enable DEBUG_INFO
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           ! grep -q '^CONFIG_LOCALVERSION=".*PervySage' out/.config
+          grep -q '^CONFIG_DEBUG_INFO=y$' out/.config
+          grep -q '^CONFIG_KFENCE=y$' out/.config
+          grep -q '^CONFIG_KSU_SUSFS_OPEN_REDIRECT=y$' out/.config
+          grep -q '^CONFIG_LTO_CLANG=y$' out/.config
+          grep -q '^CONFIG_SHADOW_CALL_STACK=y$' out/.config
 
           # Keep the defconfig's existing choices; do not force-disable KPROBES.
           grep -E '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KSU_SYSCALL_TABLE_HOOK=|CONFIG_KSU_KPROBES_HOOK=|CONFIG_KPROBES=|# CONFIG_KPROBES is not set)' out/.config
@@ -114,6 +122,22 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             2>&1 | tee build.log
+          test -s out/vmlinux
+          test -s out/System.map
+
+      - name: Upload original-config crash symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crimson-Ruby-Original-Config-Symbols-${{ github.sha }}
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            out/vmlinux
+            out/System.map
+            out/.config
+            out/kernelrelease.txt
+            build.log
 
       - name: Report build output
         if: always()
