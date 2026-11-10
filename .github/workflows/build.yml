@@ -142,7 +142,7 @@ jobs:
         with:
           name: Crimson-Ruby-Original-Config-Symbols-${{ github.sha }}
           if-no-files-found: warn
-          compression-level: 0
+          compression-level: 9
           path: |
             out/selinux_inode_permission.disasm
             out/slow_avc_audit.disasm
@@ -150,7 +150,6 @@ jobs:
             out/System.map
             out/.config
             out/kernelrelease.txt
-            build.log
 
       - name: Report build output
         if: always()
