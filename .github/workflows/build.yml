@@ -3,6 +3,7 @@ name: Crimson Ruby Kernel CI
 on:
   push:
     branches:
+      - main
       - ci/github-actions-kernel-build
       - test/disable-ksu-selinux-audit-kprobe
   workflow_dispatch:
@@ -85,7 +86,7 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ruby_defconfig
 
-          # Isolate KernelSU's SELinux slow_avc_audit kprobe on this test branch.
+          # Disable KPROBES to isolate the SELinux audit-hook crash path.
           # Keep KernelSU, SUSFS, and manual syscall hooks enabled.
           scripts/config --file out/.config --set-str CONFIG_LOCALVERSION ""
           scripts/config --file out/.config --disable KPROBES
@@ -158,7 +159,6 @@ jobs:
             out/arch/arm64/boot/Image
             out/arch/arm64/boot/Image.gz
             out/arch/arm64/boot/Image.gz-dtb
-            out/arch/arm64/boot/dtbo.img
             out/.config
             out/kernelrelease.txt
             build.log
