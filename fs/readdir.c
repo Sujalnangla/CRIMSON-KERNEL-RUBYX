@@ -23,6 +23,10 @@
 
 #include <linux/uaccess.h>
 
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+#include <linux/susfs.h>
+#endif
+
 int iterate_dir(struct file *file, struct dir_context *ctx)
 {
 	struct inode *inode = file_inode(file);
@@ -302,6 +306,7 @@ struct getdents_callback64 {
 static int filldir64(struct dir_context *ctx, const char *name, int namlen,
 		     loff_t offset, u64 ino, unsigned int d_type)
 {
+	struct inode *inode;
 	struct linux_dirent64 __user *dirent;
 	struct getdents_callback64 *buf =
 		container_of(ctx, struct getdents_callback64, ctx);

@@ -46,6 +46,9 @@
 #define DEFAULT_KSU_MNT_ID 500000 /* used by mount->mnt_id */
 #define DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE 1000000 /* used by vfsmount->susfs_mnt_id_backup */
 #define DEFAULT_KSU_MNT_GROUP_ID 5000 /* used by mount->mnt_group_id */
+#define DEFAULT_KSU_MNT_MINOR_DEV (1 << 12) /* reserve a separate minor range for SUSFS KSU mounts */
+#define STATX_SUS_KSTAT 0x10000000U
+#define STATX_SUS_KSTAT_FUSE 0x20000000U
 #define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x80000000 /* used for mounts that are unshared by ksu process */
 
 /*
@@ -123,6 +126,10 @@ int data_type, susfs_fname_t file_name, u32 cookie)
 #ifndef FUSE_SUPER_MAGIC
 #define FUSE_SUPER_MAGIC 0x65735546
 #endif
+
+static inline bool susfs_is_current_app_uid(void) {
+	return ((current_uid().val % 100000) >= 10000);
+}
 
 static inline bool susfs_is_current_proc_umounted(void) {
 	return test_ti_thread_flag(&current->thread_info, TIF_PROC_UMOUNTED);
