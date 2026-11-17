@@ -487,3 +487,8 @@ CONFIG_CPU_IDLE_GOV_TEO=y
 
 # Keep the MediaTek SELinux AEE audit hook disabled.
 # CONFIG_MTK_SELINUX_AEE_WARNING is not set
+
+# Android BPF loader and cgroup-attached eBPF support.
+CONFIG_BPF_SYSCALL=y
+CONFIG_CGROUP_BPF=y
+CONFIG_BPF_JIT=y
