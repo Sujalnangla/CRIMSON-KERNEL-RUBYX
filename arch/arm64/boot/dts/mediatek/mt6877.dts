@@ -4747,6 +4747,8 @@
 	vdec@1602f000 {
 		compatible = "mediatek,vdec";
 		reg = <0 0x1602f000 0 0x1000>;
+		/* Superseded by the MT6877 multi-region decoder node above. */
+		status = "disabled";
 	};
 
 	vdec@16030000 {
@@ -4789,6 +4791,8 @@
 	venc@17020000 {
 		compatible = "mediatek,venc";
 		reg = <0 0x17020000 0 0x10000>;
+		/* Superseded by the MT6877 encoder node above. */
+		status = "disabled";
 	};
 
 	jpgenc@17030000 {
