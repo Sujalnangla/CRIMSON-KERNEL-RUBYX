@@ -34,4 +34,13 @@ config MTK_CMDQ_MBOX_EXT
 	  cmdq-record, pre-dump, timeout error dump, first error buffer
 	  and aee db. Enable performance tools which add instruction
 	  inside packet and profiling. Also enable secure path with
-	  new sec controller which decuple with v3 driver.
+	  new sec controller which decuple with v3 driver
+
+config MTK_CMDQ_TEST
+	bool "MediaTek CMDQ mailbox test driver"
+	depends on MTK_CMDQ_MBOX_EXT
+	default n
+	help
+	  Build the optional CMDQ mailbox test driver and its debugfs
+	  interface. This is intended for CMDQ validation, not normal
+	  device operation..
