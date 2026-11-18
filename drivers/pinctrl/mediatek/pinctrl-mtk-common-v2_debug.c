@@ -7,6 +7,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/errno.h>
 
 #include <dt-bindings/pinctrl/mt65xx.h>
 #include <linux/gpio.h>
@@ -408,9 +409,16 @@ static int mtk_gpio_create_attr(void)
 				return -EINVAL;
 			}
 
+			/*
+			 * Multiple GPIO chips can share one pinctrl device.
+			 * The mt_gpio attribute is device-wide, so an existing
+			 * attribute is already the desired result.
+			 */
 			err = device_create_file(hw->dev, &dev_attr_mt_gpio);
+			if (err == -EEXIST)
+				err = 0;
 			if (err) {
-				pr_notice("[pinctrl]error create mtk_gpio\n");
+				pr_notice("[pinctrl]error create mtk_gpio: %d\n", err);
 				break;
 			}
 		}
