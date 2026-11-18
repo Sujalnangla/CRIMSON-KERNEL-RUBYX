@@ -94,14 +94,18 @@ jobs:
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           ! grep -q '^CONFIG_LOCALVERSION=".*PervySage' out/.config
 
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+
+          # Assert the final resolved configuration, not just the defconfig.
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
           grep -q '^# CONFIG_KPROBES is not set$' out/.config
-
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -q '^CONFIG_BPF_SYSCALL=y$' out/.config
+          grep -q '^CONFIG_CGROUP_BPF=y$' out/.config
+          grep -q '^CONFIG_BPF_JIT=y$' out/.config
           grep -q '^CONFIG_CPU_IDLE_GOV_TEO=y$' out/.config
-          echo "TEO governor: enabled in final config"
+          echo "Final config checks passed: KSU, SUSFS, manual hooks, KPROBES disabled, BPF syscall/cgroup/JIT, and TEO"
 
           echo "Kernel release:"
           make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease \
@@ -118,17 +122,32 @@ jobs:
             LLVM_IAS=1 \
             2>&1 | tee build.log
 
-      - name: Upload SELinux-kprobe isolation symbols
+      - name: Compress kernel debug symbols
+        if: always()
+        run: |
+          set -euxo pipefail
+          if [ -s out/vmlinux ]; then
+            zstd -T0 -3 -f out/vmlinux -o out/vmlinux.zst
+            test -s out/vmlinux.zst
+            echo "Debug-symbol size:"
+            ls -lh out/vmlinux out/vmlinux.zst
+            zstd -t out/vmlinux.zst
+          else
+            echo "out/vmlinux is unavailable; skipping symbol compression"
+          fi
+
+      - name: Upload kernel debug symbols
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Crimson-Ruby-Kprobe-Isolation-${{ github.sha }}
+          name: Crimson-Ruby-Debug-Symbols-${{ github.sha }}
           if-no-files-found: warn
           compression-level: 0
           path: |
-            out/vmlinux
+            out/vmlinux.zst
             out/System.map
             out/.config
+            out/kernelrelease.txt
             build.log
 
       - name: Report build output
