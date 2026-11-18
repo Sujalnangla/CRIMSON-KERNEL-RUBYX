@@ -6907,6 +6907,18 @@ static void mtk_crtc_init_gce_obj(struct drm_device *drm_dev,
 			mtk_crtc->gce_obj.client[i] = NULL;
 			continue;
 		}
+		/*
+		 * CRTC1 and CRTC2 share one secure GCE thread. Reuse the
+		 * first secure client instead of requesting the same mailbox
+		 * channel again for the second CRTC.
+		 */
+		if (i == CLIENT_SEC_CFG &&
+		    drm_crtc_index(&mtk_crtc->base) > 0 &&
+		    priv->ext_sec_client) {
+			mtk_crtc->gce_obj.client[i] = priv->ext_sec_client;
+			continue;
+		}
+
 		mtk_crtc->gce_obj.client[i] =
 			cmdq_mbox_create(dev, index);
 		if (i != CLIENT_SEC_CFG)
