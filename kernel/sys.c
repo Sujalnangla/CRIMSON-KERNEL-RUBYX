@@ -1261,6 +1261,22 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
+
+	/*
+	 * Android's eBPF loader on newer userspace releases checks the kernel
+	 * release before loading its programs. Keep the device's real release
+	 * for normal processes, but report the compatibility target expected
+	 * by the loader to its privileged helper processes.
+	 */
+	if (current_uid().val == 0 &&
+	    (!strncmp(current->comm, "bpfloader", 9) ||
+	     !strncmp(current->comm, "netbpfload", 10) ||
+	     !strncmp(current->comm, "netd", 4))) {
+		strcpy(tmp.release, "6.6.127");
+		pr_info("fake uname: %s/%d release=%s\\n",
+			current->comm, current->pid, tmp.release);
+	}
+
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 	if (static_branch_likely(&susfs_is_uname_spoof_buffer_set))
 		susfs_spoof_uname(&tmp);
