@@ -1273,7 +1273,7 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 	     !strncmp(current->comm, "netbpfload", 10) ||
 	     !strncmp(current->comm, "netd", 4))) {
 		strcpy(tmp.release, "6.6.127");
-		pr_info("fake uname: %s/%d release=%s\\n",
+		pr_info("fake uname: %s/%d release=%s\n",
 			current->comm, current->pid, tmp.release);
 	}
 
