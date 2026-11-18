@@ -1841,12 +1841,21 @@ static int scp_device_probe(struct platform_device *pdev)
 		pr_err("[SCP] feature maps: <%d  %d>\n", f_idx, f_mcps);
 	}
 
-	/*scp core 1*/
-	of_property_read_string(pdev->dev.of_node, "core_1", &core_status);
-	if (strcmp(core_status, "enable") != 0)
-		pr_err("[SCP] core_1 not enable\n");
-	else {
-		pr_debug("[SCP] core_1 enable\n");
+	/*
+	 * SCP_A_ID is core 0 (see scp_cm4.h), and the MT6877 device tree
+	 * exposes the enable state as "core_0".
+	 */
+	ret = of_property_read_string(pdev->dev.of_node, "core_0",
+				      &core_status);
+	if (ret) {
+		pr_err("[SCP] failed to read core_0 property: %d\n", ret);
+		return ret;
+	}
+
+	if (strcmp(core_status, "enable") != 0) {
+		pr_err("[SCP] core_0 not enabled (status=%s)\n", core_status);
+	} else {
+		pr_debug("[SCP] core_0 enabled\n");
 		scp_enable[SCP_A_ID] = 1;
 	}
 
