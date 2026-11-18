@@ -1263,17 +1263,19 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 	memcpy(&tmp, utsname(), sizeof(tmp));
 
 	/*
-	 * Android 25Q2+ requires a 5.4-or-newer compatibility release for its
-	 * networking BPF loader. Keep the device's real release for normal
-	 * processes, but report the conservative 5.4.186 profile to the loader
-	 * helpers. This avoids selecting post-5.4 BPF programs and avoids the
-	 * loader's >=5.10 BTF path, which this 4.19 tree does not fully support.
+	 * Match MoonWake's Ruby BPF-loader compatibility profile.
+	 * Keep the real release for normal processes, while exposing the
+	 * 5.4.299 compatibility release only to root-owned Android BPF
+	 * loader helpers. Include uprobestatsbpfload as used by newer
+	 * Android userspace. This remains below the loader's >=5.10 BTF
+	 * compatibility path, which this 4.19 tree does not fully support.
 	 */
 	if (current_uid().val == 0 &&
 	    (!strncmp(current->comm, "bpfloader", 9) ||
 	     !strncmp(current->comm, "netbpfload", 10) ||
+	     !strncmp(current->comm, "uprobestatsbpfload", 18) ||
 	     !strncmp(current->comm, "netd", 4))) {
-		strcpy(tmp.release, "5.4.186");
+		strcpy(tmp.release, "5.4.299");
 		pr_info("fake uname: %s/%d release=%s\n",
 			current->comm, current->pid, tmp.release);
 	}
