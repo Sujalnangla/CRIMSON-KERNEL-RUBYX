@@ -179,6 +179,14 @@ void __rtnl_unlock(void)
 
 	defer_kfree_skb_list = NULL;
 
+	/*
+	 * Stop the diagnostic timer while rtnl_mutex is still held. Otherwise
+	 * an unlock can race with the next rtnl_lock() and clear the new
+	 * owner's trace state, or emit a stale "no process" message later.
+	 */
+	del_timer_sync(&rtnl_chk_timer);
+	rtnl_relase_btrace();
+
 	rtnl_instance.end = sched_clock();
 	if (rtnl_instance.end - rtnl_instance.start > 4000000000ULL)//4 second
 		pr_info("[mtk_net][rtnl_unlock] rtnl_lock is held by [%d] from [%llu] to [%llu]\n",
@@ -194,8 +202,6 @@ void __rtnl_unlock(void)
 		cond_resched();
 		head = next;
 	}
-
-	rtnl_relase_btrace();
 }
 
 void rtnl_unlock(void)
