@@ -4679,7 +4679,9 @@
 			"vdec_ref_reorder_done",
 			"vdec_wp_tble_done",
 			"vdec_count_sram_clr_done",
-			"vdec_gce_cnt_op_threshold";
+			"vdec_gce_cnt_op_threshold",
+			"venc_wp_2nd_done",
+			"venc_wp_3nd_done";
 
 		gce-events =  <&gce_mbox CMDQ_EVENT_VENC_CMDQ_FRAME_DONE>,
 			<&gce_mbox CMDQ_EVENT_VENC_CMDQ_PAUSE_DONE>,
@@ -4699,7 +4701,9 @@
 			<&gce_mbox CMDQ_EVENT_SPEC_EVENT_1>,
 			<&gce_mbox CMDQ_EVENT_SPEC_EVENT_2>,
 			<&gce_mbox CMDQ_EVENT_SPEC_EVENT_3>,
-			<&gce_mbox CMDQ_EVENT_GCE_CNT_OP_THRESHOLD>;
+			<&gce_mbox CMDQ_EVENT_GCE_CNT_OP_THRESHOLD>,
+			<&gce_mbox CMDQ_EVENT_VENC_C0_CMDQ_WP_2ND_STAGE_DONE>,
+			<&gce_mbox CMDQ_EVENT_VENC_C0_CMDQ_WP_3RD_STAGE_DONE>;
 
 		gce-gpr = <GCE_GPR_R10>, <GCE_GPR_R11>;
 	};
