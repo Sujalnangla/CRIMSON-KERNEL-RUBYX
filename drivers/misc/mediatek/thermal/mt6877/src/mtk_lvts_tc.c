@@ -2014,6 +2014,13 @@ void lvts_tscpu_thermal_initial_all_tc(void)
 #endif
 }
 
+/*
+ * The legacy MediaTek watchdog API is optional. MT6877 builds that use
+ * the generic watchdog driver do not provide CONFIG_MTK_WD_KICKER or
+ * get_wd_api(); in that configuration, leave watchdog mode management
+ * to the platform watchdog instead of calling the weak failure stub.
+ */
+#ifdef CONFIG_MTK_WD_KICKER
 static void lvts_disable_rgu_reset(void)
 {
 	struct wd_api *wd_api;
@@ -2022,7 +2029,6 @@ static void lvts_disable_rgu_reset(void)
 		/* reset mode */
 		wd_api->wd_thermal_direct_mode_config(
 				WD_REQ_DIS, WD_REQ_RST_MODE);
-
 	} else {
 		lvts_warn("%d FAILED TO GET WD API\n", __LINE__);
 		WARN_ON_ONCE(1);
@@ -2042,6 +2048,10 @@ static void lvts_enable_rgu_reset(void)
 		WARN_ON_ONCE(1);
 	}
 }
+#else
+static inline void lvts_disable_rgu_reset(void) { }
+static inline void lvts_enable_rgu_reset(void) { }
+#endif
 
 void lvts_config_all_tc_hw_protect(int temperature, int temperature2)
 {
