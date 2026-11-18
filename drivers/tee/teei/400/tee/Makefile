@@ -10,14 +10,17 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU General Public License for more details.
 
-obj-y += tee.o
-tee-objs += tee_core.o
-tee-objs += tee_shm.o
-tee-objs += tee_shm_pool.o
-tee-objs += tee_client_api.o
+# Keep the Microtrust TEE implementation distinct from the generic
+# drivers/tee/tee.o module. Both provide MODULE_VERSION metadata, so using
+# the same built-in module name creates a duplicate /sys/module/tee/version.
+obj-y += teei.o
+teei-objs += tee_core.o
+teei-objs += tee_shm.o
+teei-objs += tee_shm_pool.o
+teei-objs += tee_client_api.o
 
 ifeq ($(CONFIG_MICROTRUST_TEST_DRIVERS),y)
-tee-objs += capi_proxy.o
+teei-objs += capi_proxy.o
 endif
 
 obj-y += soter/
