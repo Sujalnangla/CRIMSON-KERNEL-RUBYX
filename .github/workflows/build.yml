@@ -7,6 +7,7 @@ on:
       - ci/github-actions-kernel-build
       - test/disable-ksu-selinux-audit-kprobe
       - hyperos-port
+      - 'test/**'
   workflow_dispatch:
 
 permissions:
