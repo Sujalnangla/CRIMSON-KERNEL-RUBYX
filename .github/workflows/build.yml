@@ -7,6 +7,7 @@ on:
       - ci/github-actions-kernel-build
       - test/disable-ksu-selinux-audit-kprobe
       - hyperos-port
+      - test/bore-4.19
   workflow_dispatch:
 
 permissions:
